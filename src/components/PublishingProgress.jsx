@@ -4,15 +4,11 @@ import { useEbook } from '../contexts/EbookContext';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
-const { 
-  FiBookOpen, FiLayers, FiEdit, FiCheck, FiList, FiAlertCircle, 
-  FiCpu, FiRotateCw, FiInfo, FiX, FiMinimize2, FiMaximize2, FiStopCircle 
-} = FiIcons;
+const { FiBookOpen, FiLayers, FiEdit, FiCheck, FiList, FiAlertCircle, FiCpu, FiRotateCw, FiInfo, FiX, FiMinimize2, FiMaximize2, FiStopCircle } = FiIcons;
 
 const PublishingProgress = ({ progress, isVisible }) => {
   // Get context functions for controlling the publishing process
   const { abortPublishing, minimizePublishingWindow, backgroundProcessing } = useEbook();
-  
   // Move useState to the top level to avoid conditional hook calls
   const [showDebug, setShowDebug] = useState(false);
 
@@ -58,11 +54,13 @@ const PublishingProgress = ({ progress, isVisible }) => {
 
   const isGeneratingContent = progress.currentItem && progress.currentItem.startsWith('Generating content for:');
   const isApiError = progress.step === 'error' && progress.message && (
-    progress.message.includes('API') ||
-    progress.message.includes('Failed to create') ||
-    progress.message.includes('No route') ||
+    progress.message.includes('API') || 
+    progress.message.includes('Failed to create') || 
+    progress.message.includes('No route') || 
     progress.message.includes('No valid')
   );
+  const isPostTypeError = progress.step === 'error' && progress.message && 
+    progress.message.includes('post_type');
   
   const isProcessComplete = progress.step === 'complete';
   const isProcessError = progress.step === 'error';
@@ -83,15 +81,15 @@ const PublishingProgress = ({ progress, isVisible }) => {
       >
         {/* Close and Minimize Buttons */}
         <div className="absolute top-4 right-4 flex space-x-2">
-          <button 
-            onClick={minimizePublishingWindow} 
+          <button
+            onClick={minimizePublishingWindow}
             className="p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
             title="Minimize"
           >
             <SafeIcon icon={FiMinimize2} className="text-sm" />
           </button>
-          <button 
-            onClick={() => minimizePublishingWindow()} 
+          <button
+            onClick={() => minimizePublishingWindow()}
             className="p-1 text-gray-500 hover:text-gray-700 rounded-full hover:bg-gray-100"
             title="Close"
           >
@@ -107,35 +105,17 @@ const PublishingProgress = ({ progress, isVisible }) => {
               <SafeIcon icon={FiStopCircle} className="text-2xl text-orange-600 animate-pulse" />
             ) : (
               <SafeIcon 
-                icon={
-                  progress.step === 'error' 
-                    ? FiAlertCircle 
-                    : progress.step === 'aborted'
-                      ? FiX
-                      : getStepIcon(progress.step)
-                }
-                className={`text-2xl ${
-                  progress.step === 'error' 
-                    ? 'text-red-600' 
-                    : progress.step === 'aborted'
-                      ? 'text-orange-600'
-                      : isProcessAborting
-                        ? 'text-orange-600'
-                        : 'text-primary-600'
-                }`}
+                icon={progress.step === 'error' ? FiAlertCircle : progress.step === 'aborted' ? FiX : getStepIcon(progress.step)}
+                className={`text-2xl ${progress.step === 'error' ? 'text-red-600' : progress.step === 'aborted' ? 'text-orange-600' : isProcessAborting ? 'text-orange-600' : 'text-primary-600'}`}
               />
             )}
           </div>
           <h3 className="text-lg font-semibold text-gray-900">
-            {progress.step === 'error' 
-              ? 'Publishing Error' 
-              : progress.step === 'aborted'
-                ? 'Publishing Aborted'
-                : isProcessAborting
-                  ? 'Stopping Process...'
-                  : isGeneratingContent 
-                    ? 'AI Content Generation' 
-                    : 'Publishing to WordPress'}
+            {progress.step === 'error' ? 'Publishing Error' : 
+             progress.step === 'aborted' ? 'Publishing Aborted' :
+             isProcessAborting ? 'Stopping Process...' :
+             isGeneratingContent ? 'AI Content Generation' : 
+             'Publishing to WordPress'}
           </h3>
           <p className="text-sm text-gray-600 mt-1">
             {progress.message || 'Please wait while we publish your ebook...'}
@@ -165,15 +145,11 @@ const PublishingProgress = ({ progress, isVisible }) => {
           <div className="w-full bg-gray-200 rounded-full h-2">
             <motion.div
               className={`h-2 rounded-full ${
-                isGeneratingContent 
-                  ? 'bg-blue-600' 
-                  : progress.step === 'error' 
-                    ? 'bg-red-600' 
-                    : progress.step === 'aborted'
-                      ? 'bg-orange-600'
-                      : isProcessAborting
-                        ? 'bg-orange-600'
-                        : 'bg-primary-600'
+                isGeneratingContent ? 'bg-blue-600' : 
+                progress.step === 'error' ? 'bg-red-600' : 
+                progress.step === 'aborted' ? 'bg-orange-600' : 
+                isProcessAborting ? 'bg-orange-600' : 
+                'bg-primary-600'
               }`}
               initial={{ width: '0%' }}
               animate={{ width: `${progress.progress}%` }}
@@ -194,34 +170,26 @@ const PublishingProgress = ({ progress, isVisible }) => {
               (step.key === 'complete' && progress.step === 'complete');
             
             const isAnimating = isActive && progress.step !== 'error' && progress.step !== 'aborted' && progress.step !== 'complete' && !isProcessAborting;
-
+            
             return (
-              <div
+              <div 
                 key={step.key}
                 className={`flex items-start space-x-3 ${
-                  isActive
-                    ? (isGeneratingContent && (step.key === 'topics' || step.key === 'lessons')
-                      ? 'text-blue-600'
-                      : 'text-primary-600')
-                    : isCompleted
-                      ? 'text-green-600'
-                      : progress.step === 'error' && index >= steps.findIndex(s => s.key === progress.step)
-                        ? 'text-red-400'
-                        : progress.step === 'aborted' || isProcessAborting
-                          ? 'text-orange-400'
-                          : 'text-gray-400'
+                  isActive ? (isGeneratingContent && (step.key === 'topics' || step.key === 'lessons') ? 'text-blue-600' : 'text-primary-600') : 
+                  isCompleted ? 'text-green-600' : 
+                  progress.step === 'error' && index >= steps.findIndex(s => s.key === progress.step) ? 'text-red-400' : 
+                  progress.step === 'aborted' || isProcessAborting ? 'text-orange-400' : 
+                  'text-gray-400'
                 }`}
               >
                 <div className={`mt-0.5 ${isAnimating ? (isGeneratingContent ? 'animate-pulse' : 'animate-spin') : ''}`}>
-                  <SafeIcon
+                  <SafeIcon 
                     icon={
-                      isCompleted
-                        ? FiCheck
-                        : isGeneratingContent && (step.key === 'topics' || step.key === 'lessons') && isActive
-                          ? FiCpu
-                          : getStepIcon(step.key)
+                      isCompleted ? FiCheck : 
+                      isGeneratingContent && (step.key === 'topics' || step.key === 'lessons') && isActive ? FiCpu : 
+                      getStepIcon(step.key)
                     }
-                    className="text-sm"
+                    className="text-sm" 
                   />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -264,7 +232,27 @@ const PublishingProgress = ({ progress, isVisible }) => {
             </ul>
           </div>
         )}
-        
+
+        {/* Post Type Error Note */}
+        {isPostTypeError && (
+          <div className="mt-5 p-3 bg-red-50 border border-red-100 rounded-md">
+            <p className="text-xs text-red-700">
+              <strong>Post Type Error:</strong> There was an issue with the post_type field in WordPress.
+            </p>
+            <p className="text-xs text-red-700 mt-2">
+              <strong>Details:</strong> The system is now using a standardized approach to handle post types in WordPress. This should resolve any conflicts with custom fields.
+            </p>
+            <p className="text-xs text-red-700 mt-2">
+              <strong>Suggestions:</strong>
+            </p>
+            <ul className="text-xs text-red-700 mt-1 list-disc pl-4">
+              <li>Verify your WordPress custom post types are properly registered</li>
+              <li>Check that meta fields are properly configured in WordPress</li>
+              <li>Ensure the user has proper permissions to create custom post types</li>
+            </ul>
+          </div>
+        )}
+
         {/* Abort Process Button - Only show if still processing */}
         {!isProcessComplete && !isProcessError && !isProcessAborted && (
           <div className="mt-6">
@@ -275,9 +263,7 @@ const PublishingProgress = ({ progress, isVisible }) => {
               }}
               disabled={isProcessAborting}
               className={`w-full py-2 px-4 rounded-md transition-colors flex items-center justify-center space-x-2 ${
-                isProcessAborting 
-                  ? 'bg-gray-400 text-white cursor-not-allowed' 
-                  : 'bg-red-600 text-white hover:bg-red-700'
+                isProcessAborting ? 'bg-gray-400 text-white cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'
               }`}
             >
               {isProcessAborting ? (
@@ -294,10 +280,10 @@ const PublishingProgress = ({ progress, isVisible }) => {
             </button>
           </div>
         )}
-        
+
         {/* Debug Information Toggle */}
         <div className="mt-5 border-t border-gray-100 pt-3">
-          <button
+          <button 
             onClick={() => setShowDebug(!showDebug)}
             className="flex items-center space-x-2 text-xs text-gray-500 hover:text-gray-700"
           >

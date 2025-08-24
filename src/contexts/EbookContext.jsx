@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState } from 'react';
 import { useSettings } from './SettingsContext';
 import OpenAIService from '../services/openaiService';
 import WordPressService from '../services/wordpressService';
+import WebhookService from '../services/webhookService';
 
 const EbookContext = createContext();
 
@@ -47,16 +48,19 @@ export const EbookProvider = ({ children }) => {
       updatedAt: new Date().toISOString(),
       knowledgeLibraries: {} // Initialize empty knowledge libraries
     };
+
     setProjects(prev => [newProject, ...prev]);
     return newProject;
   };
 
   const updateProject = (projectId, updates) => {
-    setProjects(prev => prev.map(project =>
-      project.id === projectId
-        ? { ...project, ...updates, updatedAt: new Date().toISOString() }
-        : project
-    ));
+    setProjects(prev =>
+      prev.map(project =>
+        project.id === projectId
+          ? { ...project, ...updates, updatedAt: new Date().toISOString() }
+          : project
+      )
+    );
   };
 
   const getProject = (projectId) => {
@@ -194,6 +198,7 @@ export const EbookProvider = ({ children }) => {
       });
 
       return outline;
+
     } catch (error) {
       console.error('Error generating outline:', error);
       throw new Error(error.message || 'Failed to generate ebook outline. Please check your API keys and try again.');
@@ -233,7 +238,7 @@ export const EbookProvider = ({ children }) => {
   const getVectorStoreForLesson = (knowledgeLibraries, chapterIndex, topicIndex, lessonIndex) => {
     const lessonKey = `lesson-${chapterIndex}-${topicIndex}-${lessonIndex}`;
     const topicKey = `chapter-${chapterIndex}`;
-    
+
     // Priority: lesson-specific > chapter-level
     return knowledgeLibraries[lessonKey] || knowledgeLibraries[topicKey] || null;
   };
@@ -251,11 +256,6 @@ export const EbookProvider = ({ children }) => {
       throw new Error('WordPress credentials are not configured. Please check your settings.');
     }
 
-    // Check if webhook settings are configured
-    if (!settings.webhooks) {
-      throw new Error('Webhook settings are not configured. Please check your settings.');
-    }
-
     setIsPublishing(true);
     setPublishingProgress({
       step: 'preparing',
@@ -269,12 +269,15 @@ export const EbookProvider = ({ children }) => {
     });
 
     try {
-      // Initialize WordPress service
+      // Initialize services
       const wpService = new WordPressService(
         settings.wordpressUrl,
         settings.wordpressUsername,
         settings.wordpressPassword
       );
+      
+      // 🔗 Initialize Webhook Service
+      const webhookService = new WebhookService();
 
       // Check for abort before each major step
       if (shouldAbortProcessing) {
@@ -282,7 +285,11 @@ export const EbookProvider = ({ children }) => {
       }
 
       // Validate WordPress connection
-      setPublishingProgress(prev => ({ ...prev, message: 'Validating WordPress connection...' }));
+      setPublishingProgress(prev => ({
+        ...prev,
+        message: 'Validating WordPress connection...'
+      }));
+
       const connectionCheck = await wpService.validateConnection();
       if (!connectionCheck.success) {
         throw new Error(`WordPress connection failed: ${connectionCheck.error}`);
@@ -293,7 +300,10 @@ export const EbookProvider = ({ children }) => {
         throw new Error('Publishing process aborted by user');
       }
 
-      setPublishingProgress(prev => ({ ...prev, message: 'WordPress connection validated, checking API availability...' }));
+      setPublishingProgress(prev => ({
+        ...prev,
+        message: 'WordPress connection validated, checking API availability...'
+      }));
 
       // Check if WordPress REST API is available
       const apiCheck = await wpService.checkRestApiAvailability();
@@ -306,7 +316,10 @@ export const EbookProvider = ({ children }) => {
         throw new Error('Publishing process aborted by user');
       }
 
-      setPublishingProgress(prev => ({ ...prev, message: 'Verifying WordPress credentials...' }));
+      setPublishingProgress(prev => ({
+        ...prev,
+        message: 'Verifying WordPress credentials...'
+      }));
 
       // Verify WordPress credentials
       const credentialsCheck = await wpService.verifyCredentials();
@@ -321,7 +334,12 @@ export const EbookProvider = ({ children }) => {
 
       setPublishingProgress(prev => ({
         ...prev,
-        debug: { ...prev.debug, connectionCheck, apiCheck, credentialsCheck }
+        debug: {
+          ...prev.debug,
+          connectionCheck,
+          apiCheck,
+          credentialsCheck
+        }
       }));
 
       // Initialize OpenAI service for content generation
@@ -365,10 +383,15 @@ export const EbookProvider = ({ children }) => {
         currentItem: outline.title,
         totalItems,
         processedItems: 0,
-        debug: { ...prev.debug, totalItems, topicCount, lessonCount }
+        debug: {
+          ...prev.debug,
+          totalItems,
+          topicCount,
+          lessonCount
+        }
       }));
 
-      // Step 1: Create the book (Workflow 1.5)
+      // Step 1: Create the book
       const bookContent = `
         ${outline.preface || ''}
         ${outline.introduction || ''}
@@ -377,13 +400,14 @@ export const EbookProvider = ({ children }) => {
 
       console.log('Creating book in WordPress:', outline.title);
       const book = await wpService.createBook(outline.title, bookContent);
+
       if (!book || !book.id) {
         throw new Error('Failed to create book: No valid book ID returned');
       }
 
       const bookId = book.id;
-      console.log('Book created with ID:', bookId);
-      console.log('Book details:', book);
+      console.log('✅ Book created with ID:', bookId);
+      console.log('📖 Book details:', book);
 
       // Check for abort after book creation
       if (shouldAbortProcessing) {
@@ -394,101 +418,99 @@ export const EbookProvider = ({ children }) => {
         ...prev,
         step: 'chapters',
         progress: Math.round((1 / totalItems) * 100),
-        message: 'Creating chapters...',
+        message: 'Creating chapters and nested content...',
         processedItems: 1,
-        debug: { ...prev.debug, bookId, bookUrl: book.link }
+        debug: {
+          ...prev.debug,
+          bookId,
+          bookUrl: book.link
+        }
       }));
 
-      // Step 2: Create chapters and link them to the book (Workflow 1.6)
-      const createdChapters = [];
-      for (let i = 0; i < outline.chapters.length; i++) {
+      // Step 2: Create the complete hierarchical structure
+      const createdStructure = [];
+      let processedCount = 1; // Start with 1 for the book
+
+      for (let chapterIndex = 0; chapterIndex < outline.chapters.length; chapterIndex++) {
         // Check if processing should be aborted
         if (shouldAbortProcessing) {
           console.log('🛑 ABORT DETECTED - Stopping chapter creation');
           throw new Error('Publishing process aborted by user');
         }
 
-        const chapter = outline.chapters[i];
+        const chapter = outline.chapters[chapterIndex];
         const chapterTitle = `Chapter ${chapter.courseNumber}: ${chapter.courseTitle}`;
         const chapterContent = `<p>${chapter.courseDescription}</p>`;
 
         setPublishingProgress(prev => ({
           ...prev,
           currentItem: chapterTitle,
-          message: `Creating chapter ${i + 1} of ${outline.chapters.length}...`
+          message: `Creating chapter ${chapterIndex + 1} of ${outline.chapters.length}...`
         }));
 
-        // Create chapter
-        console.log('Creating chapter:', chapterTitle);
-        const chapterPost = await wpService.createChapter(chapterTitle, chapterContent);
+        // Create chapter with book as parent
+        console.log(`📚 Creating chapter: ${chapterTitle} under book ID: ${bookId}`);
+        const chapterPost = await wpService.createChapter(chapterTitle, chapterContent, bookId);
+
         if (!chapterPost || !chapterPost.id) {
           console.error('Failed to create chapter: No valid chapter ID returned');
           continue; // Skip this chapter but continue with others
         }
 
         const chapterId = chapterPost.id;
-        console.log('Chapter created with ID:', chapterId);
-        console.log('Chapter details:', chapterPost);
+        console.log('✅ Chapter created with ID:', chapterId);
 
-        // Store created chapter info
-        createdChapters.push({
-          original: chapter,
-          post: chapterPost,
-          id: chapterId
-        });
-
-        // Link book to chapter (L1) - Using webhook settings
-        console.log(`🔗 Linking book ${bookId} to chapter ${chapterId}`);
-        const linkResult = await wpService.linkBookToChapter(bookId, chapterId, settings.webhooks.bookToChapter);
-        console.log('📋 Link result:', linkResult);
-
-        // Check for abort after each chapter
-        if (shouldAbortProcessing) {
-          console.log('🛑 ABORT DETECTED - Stopping after chapter creation');
-          throw new Error('Publishing process aborted by user');
+        // 🔗 WEBHOOK CALL: Link Book to Chapter
+        console.log('🔗 Calling webhook to link book to chapter...');
+        const bookToChapterResult = await webhookService.linkBookToChapter(bookId, chapterId);
+        
+        if (bookToChapterResult.success) {
+          console.log('✅ Book-to-Chapter webhook successful');
+        } else {
+          console.warn('⚠️ Book-to-Chapter webhook failed:', bookToChapterResult.error);
+          // Continue processing even if webhook fails
         }
 
+        processedCount++;
         setPublishingProgress(prev => ({
           ...prev,
-          progress: Math.round(((prev.processedItems + 1) / totalItems) * 100),
-          processedItems: prev.processedItems + 1,
-          debug: {
-            ...prev.debug,
-            chapters: [
-              ...(prev.debug.chapters || []),
-              { id: chapterId, title: chapterTitle, url: chapterPost.link, linkResult }
-            ]
-          }
+          progress: Math.round((processedCount / totalItems) * 100),
+          processedItems: processedCount
         }));
+
+        const chapterStructure = {
+          chapter: {
+            original: chapter,
+            post: chapterPost,
+            id: chapterId
+          },
+          topics: []
+        };
 
         // Skip topics if none exist
-        if (!chapter.topics || chapter.topics.length === 0) continue;
+        if (!chapter.topics || chapter.topics.length === 0) {
+          createdStructure.push(chapterStructure);
+          continue;
+        }
 
-        // Step 3: Create topics for each chapter (Workflow 2)
-        setPublishingProgress(prev => ({
-          ...prev,
-          step: 'topics',
-          message: `Creating topics for chapter ${i + 1}...`
-        }));
-
-        const createdTopics = [];
-        for (let j = 0; j < chapter.topics.length; j++) {
+        // Create all topics for this chapter
+        for (let topicIndex = 0; topicIndex < chapter.topics.length; topicIndex++) {
           // Check if processing should be aborted
           if (shouldAbortProcessing) {
             console.log('🛑 ABORT DETECTED - Stopping topic creation');
             throw new Error('Publishing process aborted by user');
           }
 
-          const topic = chapter.topics[j];
+          const topic = chapter.topics[topicIndex];
           const topicTitle = topic.topicTitle;
 
-          // Generate topic introduction using AI (Workflow 2.2)
           setPublishingProgress(prev => ({
             ...prev,
             currentItem: `Generating content for: ${topicTitle}`,
-            message: `Generating topic introduction ${j + 1} of ${chapter.topics.length} for chapter ${i + 1}...`
+            message: `Creating topic ${topicIndex + 1} of ${chapter.topics.length} for chapter ${chapterIndex + 1}...`
           }));
 
+          // Generate topic introduction using AI
           console.log('🤖 Generating topic introduction for:', topicTitle);
           let topicIntroduction;
           try {
@@ -541,84 +563,69 @@ export const EbookProvider = ({ children }) => {
 
           const topicContent = `<p>${topic.topicLearningObjectiveDescription}</p><div class="topic-introduction">${topicIntroduction}</div>`;
 
-          // Create topic
-          console.log('Creating chapter topic:', topicTitle);
-          const topicPost = await wpService.createChapterTopic(topicTitle, topicContent);
+          // Create topic with chapter as parent
+          console.log(`📝 Creating chapter topic: ${topicTitle} under chapter ID: ${chapterId}`);
+          const topicPost = await wpService.createChapterTopic(topicTitle, topicContent, chapterId);
+
           if (!topicPost || !topicPost.id) {
             console.error('Failed to create topic: No valid topic ID returned');
             continue; // Skip this topic but continue with others
           }
 
           const topicId = topicPost.id;
-          console.log('Topic created with ID:', topicId);
-          console.log('Topic details:', topicPost);
+          console.log('✅ Topic created with ID:', topicId);
 
-          // Store created topic info
-          createdTopics.push({
-            original: topic,
-            post: topicPost,
-            id: topicId
-          });
-
-          // Link chapter to topic (L2) - Using webhook settings
-          console.log(`🔗 Linking chapter ${chapterId} to topic ${topicId}`);
-          const topicLinkResult = await wpService.linkChapterToTopic(chapterId, topicId, settings.webhooks.chapterToTopic);
-          console.log('📋 Topic link result:', topicLinkResult);
-
-          // Check for abort after topic creation
-          if (shouldAbortProcessing) {
-            console.log('🛑 ABORT DETECTED - Stopping after topic creation');
-            throw new Error('Publishing process aborted by user');
+          // 🔗 WEBHOOK CALL: Link Chapter to Topic
+          console.log('🔗 Calling webhook to link chapter to topic...');
+          const chapterToTopicResult = await webhookService.linkChapterToTopic(chapterId, topicId);
+          
+          if (chapterToTopicResult.success) {
+            console.log('✅ Chapter-to-Topic webhook successful');
+          } else {
+            console.warn('⚠️ Chapter-to-Topic webhook failed:', chapterToTopicResult.error);
+            // Continue processing even if webhook fails
           }
 
+          processedCount++;
           setPublishingProgress(prev => ({
             ...prev,
-            progress: Math.round(((prev.processedItems + 1) / totalItems) * 100),
-            processedItems: prev.processedItems + 1,
-            debug: {
-              ...prev.debug,
-              topics: [
-                ...(prev.debug.topics || []),
-                {
-                  id: topicId,
-                  title: topicTitle,
-                  url: topicPost.link,
-                  linkResult: topicLinkResult,
-                  parentChapterId: chapterId
-                }
-              ]
-            }
+            progress: Math.round((processedCount / totalItems) * 100),
+            processedItems: processedCount
           }));
+
+          const topicStructure = {
+            topic: {
+              original: topic,
+              post: topicPost,
+              id: topicId
+            },
+            sections: []
+          };
 
           // Skip lessons if none exist
-          if (!topic.lessons || topic.lessons.length === 0) continue;
+          if (!topic.lessons || topic.lessons.length === 0) {
+            chapterStructure.topics.push(topicStructure);
+            continue;
+          }
 
-          // Step 4: Create lessons for each topic (Workflow 3 & 4)
-          setPublishingProgress(prev => ({
-            ...prev,
-            step: 'lessons',
-            message: `Creating lessons for topic ${j + 1}...`
-          }));
-
-          const createdLessons = [];
-          for (let k = 0; k < topic.lessons.length; k++) {
+          // Create all sections (lessons) for this topic
+          for (let lessonIndex = 0; lessonIndex < topic.lessons.length; lessonIndex++) {
             // Check if processing should be aborted
             if (shouldAbortProcessing) {
               console.log('🛑 ABORT DETECTED - Stopping lesson creation');
               throw new Error('Publishing process aborted by user');
             }
 
-            const lesson = topic.lessons[k];
+            const lesson = topic.lessons[lessonIndex];
             const lessonTitle = lesson.lessonTitle;
 
             // Get vector store ID for this lesson (RAG enhancement)
-            const vectorStoreId = getVectorStoreForLesson(knowledgeLibraries, i, j, k);
+            const vectorStoreId = getVectorStoreForLesson(knowledgeLibraries, chapterIndex, topicIndex, lessonIndex);
 
-            // Generate section content using AI (Workflow 4.2) with optional RAG
             setPublishingProgress(prev => ({
               ...prev,
               currentItem: `Generating content for: ${lessonTitle}${vectorStoreId ? ' (with RAG)' : ''}`,
-              message: `Generating lesson content ${k + 1} of ${topic.lessons.length} for topic ${j + 1}...`
+              message: `Creating lesson ${lessonIndex + 1} of ${topic.lessons.length} for topic ${topicIndex + 1}...`
             }));
 
             const fullContext = `
@@ -686,63 +693,69 @@ export const EbookProvider = ({ children }) => {
               <div class="lesson-content">${sectionContent}</div>
             `;
 
-            // Create section (lesson)
-            console.log('Creating topic section:', lessonTitle);
-            const sectionPost = await wpService.createTopicSection(lessonTitle, lessonContent);
+            // Create section (lesson) with topic as parent
+            console.log(`📖 Creating topic section: ${lessonTitle} under topic ID: ${topicId}`);
+            const sectionPost = await wpService.createTopicSection(lessonTitle, lessonContent, topicId);
+
             if (!sectionPost || !sectionPost.id) {
               console.error('Failed to create lesson: No valid section ID returned');
               continue; // Skip this lesson but continue with others
             }
 
             const sectionId = sectionPost.id;
-            console.log('Section created with ID:', sectionId);
-            console.log('Section details:', sectionPost);
+            console.log('✅ Section created with ID:', sectionId);
 
-            // Store created lesson info
-            createdLessons.push({
+            // 🔗 WEBHOOK CALL: Link Topic to Section
+            console.log('🔗 Calling webhook to link topic to section...');
+            const topicToSectionResult = await webhookService.linkTopicToSection(topicId, sectionId);
+            
+            if (topicToSectionResult.success) {
+              console.log('✅ Topic-to-Section webhook successful');
+            } else {
+              console.warn('⚠️ Topic-to-Section webhook failed:', topicToSectionResult.error);
+              // Continue processing even if webhook fails
+            }
+
+            processedCount++;
+            setPublishingProgress(prev => ({
+              ...prev,
+              progress: Math.round((processedCount / totalItems) * 100),
+              processedItems: processedCount
+            }));
+
+            // Add section to topic structure
+            topicStructure.sections.push({
               original: lesson,
               post: sectionPost,
-              id: sectionId
+              id: sectionId,
+              usedRAG: !!vectorStoreId
             });
-
-            // Link topic to section (L3) - Using webhook settings
-            console.log(`🔗 Linking topic ${topicId} to section ${sectionId}`);
-            const sectionLinkResult = await wpService.linkTopicToSection(topicId, sectionId, settings.webhooks.topicToSection);
-            console.log('📋 Section link result:', sectionLinkResult);
 
             // Check for abort after lesson creation
             if (shouldAbortProcessing) {
               console.log('🛑 ABORT DETECTED - Stopping after lesson creation');
               throw new Error('Publishing process aborted by user');
             }
-
-            setPublishingProgress(prev => ({
-              ...prev,
-              progress: Math.round(((prev.processedItems + 1) / totalItems) * 100),
-              processedItems: prev.processedItems + 1,
-              debug: {
-                ...prev.debug,
-                lessons: [
-                  ...(prev.debug.lessons || []),
-                  {
-                    id: sectionId,
-                    title: lessonTitle,
-                    url: sectionPost.link,
-                    linkResult: sectionLinkResult,
-                    parentTopicId: topicId,
-                    usedRAG: !!vectorStoreId
-                  }
-                ]
-              }
-            }));
           }
 
-          // Add lessons to topic
-          createdTopics[createdTopics.length - 1].lessons = createdLessons;
+          // Add topic to chapter structure
+          chapterStructure.topics.push(topicStructure);
+
+          // Check for abort after topic creation
+          if (shouldAbortProcessing) {
+            console.log('🛑 ABORT DETECTED - Stopping after topic creation');
+            throw new Error('Publishing process aborted by user');
+          }
         }
 
-        // Add topics to chapter
-        createdChapters[createdChapters.length - 1].topics = createdTopics;
+        // Add chapter to main structure
+        createdStructure.push(chapterStructure);
+
+        // Check for abort after chapter completion
+        if (shouldAbortProcessing) {
+          console.log('🛑 ABORT DETECTED - Stopping after chapter completion');
+          throw new Error('Publishing process aborted by user');
+        }
       }
 
       // Update project status
@@ -752,22 +765,7 @@ export const EbookProvider = ({ children }) => {
         publishedData: {
           bookId,
           bookUrl: book.link,
-          chapters: createdChapters.map(chapter => ({
-            id: chapter.id,
-            title: chapter.post.title,
-            url: chapter.post.link,
-            topics: chapter.topics?.map(topic => ({
-              id: topic.id,
-              title: topic.post.title,
-              url: topic.post.link,
-              lessons: topic.lessons?.map(lesson => ({
-                id: lesson.id,
-                title: lesson.post.title,
-                url: lesson.post.link,
-                usedRAG: lesson.usedRAG
-              }))
-            }))
-          }))
+          structure: createdStructure
         }
       });
 
@@ -781,8 +779,10 @@ export const EbookProvider = ({ children }) => {
         wordpressUrl: settings.wordpressUrl,
         debug: {
           book,
-          createdChapters,
-          totalCreated: 1 + createdChapters.length + createdChapters.reduce((sum, c) => sum + (c.topics?.length || 0), 0) + createdChapters.reduce((sum, c) => sum + c.topics?.reduce((s, t) => s + (t.lessons?.length || 0), 0) || 0, 0)
+          createdStructure,
+          totalCreated: processedCount,
+          hierarchicalStructure: 'Book -> Chapters -> Topics -> Sections',
+          webhooksUsed: 'All three webhook levels implemented'
         }
       });
 
@@ -792,6 +792,7 @@ export const EbookProvider = ({ children }) => {
         bookId,
         bookUrl: book.link
       };
+
     } catch (error) {
       console.error('Error publishing to WordPress:', error);
 
@@ -825,7 +826,7 @@ export const EbookProvider = ({ children }) => {
     } finally {
       // Clean up abort controller
       setAbortController(null);
-      
+
       // Don't reset isPublishing here if we're in background mode
       if (!backgroundProcessing) {
         setIsPublishing(false);

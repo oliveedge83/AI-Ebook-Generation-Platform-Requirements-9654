@@ -16,25 +16,7 @@ export const SettingsProvider = ({ children }) => {
     openaiFallback: '',
     wordpressUrl: '',
     wordpressUsername: '',
-    wordpressPassword: '',
-    // Webhook settings
-    webhooks: {
-      bookToChapter: {
-        url: 'https://test1.ilearn.guru/webhook/capture/uVCwiJWxOE',
-        username: 'flowmattic',
-        password: 'zRMfiGDZpbiPtYNzhjTyGaiTlQrRYCVn'
-      },
-      chapterToTopic: {
-        url: 'https://test1.ilearn.guru/webhook/capture/k64OfUZ0VI',
-        username: 'flowmattic',
-        password: 'jTSJRa4lFG3MEIIdR1tE0GbOoFooJ8jw'
-      },
-      topicToSection: {
-        url: 'https://test1.ilearn.guru/webhook/capture/EM5Or1GwKY',
-        username: 'flowmattic',
-        password: 'YMY7oVKnuhy3C2CUbD0U0RpXUUnSrDXv'
-      }
-    }
+    wordpressPassword: ''
   });
   const [loading, setLoading] = useState(true);
 
@@ -44,16 +26,7 @@ export const SettingsProvider = ({ children }) => {
       const savedSettings = localStorage.getItem('userCredentials');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        // Merge with default webhook settings if they don't exist
-        const mergedSettings = {
-          ...settings,
-          ...parsedSettings,
-          webhooks: {
-            ...settings.webhooks,
-            ...parsedSettings.webhooks
-          }
-        };
-        setSettings(mergedSettings);
+        setSettings(parsedSettings);
       }
     } catch (error) {
       console.error('Error loading settings:', error);
