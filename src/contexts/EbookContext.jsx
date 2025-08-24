@@ -47,8 +47,10 @@ export const EbookProvider = ({ children }) => {
       status: 'draft',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      knowledgeLibraries: {}
+      knowledgeLibraries: {},
+      contextValues: {} // Add context values storage
     };
+
     setProjects(prev => [newProject, ...prev]);
     return newProject;
   };
@@ -107,7 +109,6 @@ export const EbookProvider = ({ children }) => {
     }
 
     setIsGenerating(true);
-
     try {
       let researchBrief;
 
@@ -121,7 +122,6 @@ export const EbookProvider = ({ children }) => {
       if (projectData.researchLLM === 'perplexity') {
         console.log('🔍 Using Perplexity Sonar for market research...');
         let perplexityService = new PerplexityService(settings.perplexityPrimary);
-        
         try {
           researchBrief = await perplexityService.generateDeepResearch(
             projectData.niche,
@@ -131,7 +131,6 @@ export const EbookProvider = ({ children }) => {
           console.log('✅ Perplexity Sonar research completed successfully');
         } catch (error) {
           console.error('❌ Perplexity research failed:', error.message);
-          
           if (settings.perplexityFallback && error.message.includes('rate_limit_exceeded')) {
             console.log('🔄 Primary Perplexity key rate limited, trying fallback...');
             perplexityService = new PerplexityService(settings.perplexityFallback);
@@ -149,7 +148,6 @@ export const EbookProvider = ({ children }) => {
         console.log('🔍 Using OpenAI for market research...');
         // ✅ FIXED: Use correct API key for OpenAI research
         let openaiService = new OpenAIService(settings.openaiPrimary);
-        
         try {
           researchBrief = await openaiService.generateMarketResearch(
             projectData.niche,
@@ -159,7 +157,6 @@ export const EbookProvider = ({ children }) => {
           console.log('✅ OpenAI research completed successfully');
         } catch (error) {
           console.error('❌ OpenAI research failed:', error.message);
-          
           if (settings.openaiFallback && error.message.includes('rate_limit_exceeded')) {
             console.log('🔄 Primary OpenAI key rate limited, trying fallback...');
             openaiService = new OpenAIService(settings.openaiFallback);
@@ -305,12 +302,10 @@ export const EbookProvider = ({ children }) => {
   const abortPublishing = () => {
     console.log('🛑 ABORT REQUESTED - Setting abort flag to true');
     setShouldAbortProcessing(true);
-    
     if (abortController) {
       console.log('🛑 Aborting HTTP requests via AbortController');
       abortController.abort();
     }
-
     setPublishingProgress(prev => ({
       ...prev,
       step: 'aborting',
@@ -330,6 +325,23 @@ export const EbookProvider = ({ children }) => {
     const lessonKey = `lesson-${chapterIndex}-${topicIndex}-${lessonIndex}`;
     const topicKey = `chapter-${chapterIndex}`;
     return knowledgeLibraries[lessonKey] || knowledgeLibraries[topicKey] || null;
+  };
+
+  // ✅ FIXED: Enhanced context handling in publishing
+  const getContextForItem = (outline, chapterIndex, topicIndex = null, lessonIndex = null) => {
+    if (lessonIndex !== null && topicIndex !== null) {
+      // Lesson context
+      const lesson = outline.chapters?.[chapterIndex]?.topics?.[topicIndex]?.lessons?.[lessonIndex];
+      return lesson?.userAddedContext || '';
+    } else if (topicIndex !== null) {
+      // Topic context
+      const topic = outline.chapters?.[chapterIndex]?.topics?.[topicIndex];
+      return topic?.userAddedContext || '';
+    } else {
+      // Chapter context
+      const chapter = outline.chapters?.[chapterIndex];
+      return chapter?.userAddedContext || '';
+    }
   };
 
   const publishToWordPress = async (project) => {
@@ -407,8 +419,8 @@ export const EbookProvider = ({ children }) => {
       }
 
       const fallbackOpenaiService = settings.openaiFallback ? new OpenAIService(settings.openaiFallback) : null;
-      const outline = project.outline;
 
+      const outline = project.outline;
       if (!outline) {
         throw new Error('No outline available for publishing');
       }
@@ -418,7 +430,6 @@ export const EbookProvider = ({ children }) => {
       // Calculate total items
       let totalItems = 1; // Book
       totalItems += outline.chapters.length; // Chapters
-
       let topicCount = 0;
       let lessonCount = 0;
       outline.chapters.forEach(chapter => {
@@ -494,7 +505,10 @@ export const EbookProvider = ({ children }) => {
 
         const chapter = outline.chapters[chapterIndex];
         const chapterTitle = `Chapter ${chapter.courseNumber}: ${chapter.courseTitle}`;
-        const chapterContent = `<p>${chapter.courseDescription}</p>`;
+        
+        // ✅ FIXED: Include chapter context in content
+        const chapterContext = getContextForItem(outline, chapterIndex);
+        const chapterContent = `<p>${chapter.courseDescription}</p>${chapterContext ? `<div class="chapter-context"><h4>Additional Context:</h4><p>${chapterContext}</p></div>` : ''}`;
 
         setPublishingProgress(prev => ({
           ...prev,
@@ -527,11 +541,7 @@ export const EbookProvider = ({ children }) => {
         }));
 
         const chapterStructure = {
-          chapter: {
-            original: chapter,
-            post: chapterPost,
-            id: chapterId
-          },
+          chapter: { original: chapter, post: chapterPost, id: chapterId },
           topics: []
         };
 
@@ -601,9 +611,11 @@ export const EbookProvider = ({ children }) => {
             }
           }
 
-          const topicContent = `<p>${topic.topicLearningObjectiveDescription}</p><div class="topic-introduction">${topicIntroduction}</div>`;
-          const topicPost = await wpService.createChapterTopic(topicTitle, topicContent, chapterId);
+          // ✅ FIXED: Include topic context in content
+          const topicContext = getContextForItem(outline, chapterIndex, topicIndex);
+          const topicContent = `<p>${topic.topicLearningObjectiveDescription}</p><div class="topic-introduction">${topicIntroduction}</div>${topicContext ? `<div class="topic-context"><h4>Additional Context:</h4><p>${topicContext}</p></div>` : ''}`;
 
+          const topicPost = await wpService.createChapterTopic(topicTitle, topicContent, chapterId);
           if (!topicPost || !topicPost.id) {
             console.error('Failed to create topic: No valid topic ID returned');
             continue;
@@ -628,11 +640,7 @@ export const EbookProvider = ({ children }) => {
           }));
 
           const topicStructure = {
-            topic: {
-              original: topic,
-              post: topicPost,
-              id: topicId
-            },
+            topic: { original: topic, post: topicPost, id: topicId },
             sections: []
           };
 
@@ -660,7 +668,6 @@ export const EbookProvider = ({ children }) => {
 
             const fullContext = `
               ${outline.researchBrief}
-              
               Chapter: ${chapter.courseTitle}
               Chapter Description: ${chapter.courseDescription}
               Topic: ${topicTitle}
@@ -708,6 +715,9 @@ export const EbookProvider = ({ children }) => {
               }
             }
 
+            // ✅ FIXED: Get lesson context from outline
+            const lessonContext = getContextForItem(outline, chapterIndex, topicIndex, lessonIndex);
+
             let sectionContent;
             try {
               if (shouldAbortProcessing) {
@@ -721,7 +731,7 @@ export const EbookProvider = ({ children }) => {
                 lesson.lessonDescription,
                 'Step-by-step guide with examples',
                 'Practical and actionable',
-                lesson.userAddedContext || '',
+                lessonContext || '', // ✅ FIXED: Use lesson context from outline
                 vectorStoreId,
                 webSearchContext
               );
@@ -742,7 +752,7 @@ export const EbookProvider = ({ children }) => {
                     lesson.lessonDescription,
                     'Step-by-step guide with examples',
                     'Practical and actionable',
-                    lesson.userAddedContext || '',
+                    lessonContext || '', // ✅ FIXED: Use lesson context from outline
                     vectorStoreId,
                     webSearchContext
                   );
@@ -758,6 +768,7 @@ export const EbookProvider = ({ children }) => {
             const lessonContent = `
               <div class="lesson-description">${lesson.lessonDescription}</div>
               <div class="lesson-content">${sectionContent}</div>
+              ${lessonContext ? `<div class="lesson-context"><h4>Additional Context:</h4><p>${lessonContext}</p></div>` : ''}
             `;
 
             const sectionPost = await wpService.createTopicSection(lessonTitle, lessonContent, topicId);
@@ -789,7 +800,8 @@ export const EbookProvider = ({ children }) => {
               post: sectionPost,
               id: sectionId,
               usedRAG: !!vectorStoreId,
-              usedWebContext: !!webSearchContext
+              usedWebContext: !!webSearchContext,
+              hadCustomContext: !!lessonContext // ✅ FIXED: Track if custom context was used
             });
 
             if (shouldAbortProcessing) {
@@ -840,7 +852,8 @@ export const EbookProvider = ({ children }) => {
           hierarchicalStructure: 'Book -> Chapters -> Topics -> Sections',
           webhooksUsed: 'All three webhook levels implemented',
           contentMethod: contentGenerationMethod,
-          webContextUsed: !!perplexityService
+          webContextUsed: !!perplexityService,
+          customContextUsed: true // ✅ FIXED: Track that custom context handling was implemented
         }
       });
 
@@ -853,7 +866,6 @@ export const EbookProvider = ({ children }) => {
 
     } catch (error) {
       console.error('Error publishing to WordPress:', error);
-
       if (shouldAbortProcessing || error.message.includes('aborted')) {
         console.log('🛑 Publishing was aborted by user');
         setPublishingProgress(prev => ({
@@ -878,7 +890,6 @@ export const EbookProvider = ({ children }) => {
           }
         }));
       }
-
       throw error;
     } finally {
       setAbortController(null);

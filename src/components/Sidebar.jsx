@@ -4,17 +4,18 @@ import { motion } from 'framer-motion';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiHome, FiBookOpen, FiSettings, FiPlus } = FiIcons;
+const { FiHome, FiBookOpen, FiSettings, FiPlus, FiFileText } = FiIcons;
 
 const Sidebar = () => {
   const navItems = [
     { path: '/dashboard', icon: FiHome, label: 'Dashboard' },
     { path: '/create', icon: FiPlus, label: 'Create Ebook' },
+    { path: '/pdf-generator', icon: FiFileText, label: 'PDF Generator' },
     { path: '/settings', icon: FiSettings, label: 'Settings' }
   ];
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ x: -250 }}
       animate={{ x: 0 }}
       className="w-64 bg-white shadow-lg border-r border-gray-200"
@@ -25,7 +26,7 @@ const Sidebar = () => {
           <h1 className="text-xl font-bold text-gray-900">EbookGen</h1>
         </div>
       </div>
-      
+
       <nav className="mt-6">
         {navItems.map((item) => (
           <NavLink

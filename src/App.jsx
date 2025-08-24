@@ -11,6 +11,7 @@ import Settings from './pages/Settings';
 import CreateEbook from './pages/CreateEbook';
 import ReviewOutline from './pages/ReviewOutline';
 import ProjectDetails from './pages/ProjectDetails';
+import PDFGeneratorPage from './pages/PDFGeneratorPage';
 import ProtectedRoute from './components/ProtectedRoute';
 import MinimizedProgressIndicator from './components/MinimizedProgressIndicator';
 import './App.css';
@@ -32,10 +33,10 @@ function App() {
                   },
                 }}
               />
-              
+
               {/* Global minimized progress indicator that shows when publishing in background */}
               <MinimizedProgressIndicator />
-              
+
               <Routes>
                 <Route path="/login" element={<Login />} />
                 <Route
@@ -50,6 +51,7 @@ function App() {
                   <Route path="dashboard" element={<Dashboard />} />
                   <Route path="settings" element={<Settings />} />
                   <Route path="create" element={<CreateEbook />} />
+                  <Route path="pdf-generator" element={<PDFGeneratorPage />} />
                   <Route path="review/:projectId" element={<ReviewOutline />} />
                   <Route path="project/:projectId" element={<ProjectDetails />} />
                 </Route>

@@ -7,14 +7,17 @@ class OpenAIService {
 
   async makeRequest(endpoint, data, signal = null) {
     console.log(`Making OpenAI request to ${endpoint} with model: ${data.model}`);
+    
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
-          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? 
-            { 'OpenAI-Beta': 'assistants=v2' } : {})
+          // ✅ FIXED: Add OpenAI-Beta header when using file_search
+          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? {
+            'OpenAI-Beta': 'assistants=v2'
+          } : {})
         },
         body: JSON.stringify(data),
         signal: signal
@@ -52,7 +55,9 @@ Additional content and structural considerations: ${otherDesignConsiderations ||
 
 Your mission is to conduct a deep market and audience analysis to uncover the most potent professional drivers, emotional triggers, and desired outcomes of the target readership for this ebook. This deep insight will inform the ebook's structure, tone, and content to ensure it is highly practical, resonant, and achieves maximum impact for the reader.
 
-The final output MUST be a single text paragraph string titled "ebook_research_brief". The ebook_research_brief will include: "ebookTitle", "readerTransformationPillars", "idealReaderProfile", "marketRelevance", "hardHittingPainPoints", "keyEmotionalTriggers", "tangibleReaderResults", "assumedReaderKnowledge", and "recommendedContentStructure".
+The final output MUST be a single text paragraph string titled "ebook_research_brief".
+
+The ebook_research_brief will include: "ebookTitle", "readerTransformationPillars", "idealReaderProfile", "marketRelevance", "hardHittingPainPoints", "keyEmotionalTriggers", "tangibleReaderResults", "assumedReaderKnowledge", and "recommendedContentStructure".
 
 Generate the "ebook_research_brief" paragraph now. The output should be a single, continuous text string that can be passed to the next node.`;
 
@@ -322,6 +327,7 @@ Generate the topic introduction in plain text format:
           const jsonMatch = content.match(/"topicIntroduction":\s*"([^"]+)"/);
           return jsonMatch ? jsonMatch[1] : content;
         }
+        
         return content;
       } catch (error) {
         console.error('Error parsing topic introduction:', error);
@@ -363,12 +369,10 @@ Generate the topic introduction in plain text format:
     webSearchContext = null,
     signal = null
   ) {
-    console.log(`Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${webSearchContext ? ' with web context' : ''}`);
+    console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${webSearchContext ? ' with web context' : ''}`);
 
     // Enhanced system prompt that includes web research context
-    const systemPrompt = `Act as an expert ebook writer.
-
-${fullContext}
+    const systemPrompt = `Act as an expert ebook writer. ${fullContext}
 
 Focus on actionable strategies that readers can implement immediately. Address emotional triggers. Emphasize benefits. Include common mistakes and how to avoid them. Use case studies or examples from real businesses to make content relatable. Provide templates and actionable checklists if applicable. Keep the text as action focused as possible. Quote recent research on this topic if any. Keep the tone motivating and supportive. Sound like Malcolm Gladwell or Daniel Pink for this ebook.
 
@@ -380,7 +384,9 @@ Generate the content for the section using the context below in HTML formatting.
 Context: ${fullContext}
 Instruction Method suggested by creator: ${instructionMethod}
 Topic content generation approach: ${topicGenerationApproach}${userAddedContext ? `
+
 User's Additional Context: ${userAddedContext}` : ''}${vectorStoreId ? `
+
 Use the attached files from vector store library as reference material and use it as relevant.` : ''}`;
 
     const userPrompt = `TASK: Develop a practical, step-by-step section on section title ${lessonTitle} with section description as ${lessonDescription} for the target audience from context.${webSearchContext ? `
@@ -392,40 +398,65 @@ Generate the readingContent: The main text content (~1500-2000 words). Generate 
 Objectives: Provide practical, actionable content that readers can implement immediately.`;
 
     try {
-      let response;
-      
+      // ✅ FIXED: Variable naming conflict resolved
       if (vectorStoreId) {
-        console.log(`Using RAG with vector store: ${vectorStoreId}${webSearchContext ? ' and web context' : ''}`);
-        // Use RAG with vector store and web context
+        console.log(`🔍 Using RAG with vector store: ${vectorStoreId}${webSearchContext ? ' and web context' : ''}`);
+        
+        // ✅ FIXED: Use RAG with vector store and web context
         const VectorStoreService = (await import('./vectorStoreService.js')).default;
         const vectorStoreService = new VectorStoreService(this.apiKey);
         
-        response = await vectorStoreService.generateContentWithRAG(
-          vectorStoreId,
-          systemPrompt,
-          userPrompt,
-          1800
-        );
+        // ✅ CRITICAL: Check vector store status before using
+        try {
+          const storeStatus = await vectorStoreService.checkVectorStoreStatus(vectorStoreId);
+          console.log('📊 Vector store status:', storeStatus);
+          
+          if (!storeStatus.isReady) {
+            console.warn('⚠️ Vector store is not ready, using standard generation instead');
+            throw new Error(`Vector store is not ready (status: ${storeStatus.status}). Files may still be processing.`);
+          }
+          
+          if (storeStatus.fileCount === 0) {
+            console.warn('⚠️ Vector store has no files, using standard generation instead');
+            throw new Error('Vector store has no files available for search.');
+          }
+          
+          console.log(`✅ Vector store ready with ${storeStatus.fileCount} files (${storeStatus.processedFiles} processed)`);
+        } catch (statusError) {
+          console.warn('⚠️ Vector store status check failed, proceeding with standard generation:', statusError.message);
+          // Fall through to standard generation
+          vectorStoreId = null;
+        }
         
-        console.log('RAG section content generated successfully');
-        return response;
-      } else {
-        // Use standard chat completion with web context
-        const response = await this.makeRequest('/chat/completions', {
-          model: 'gpt-4o-mini',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
-          ],
-          max_tokens: 3000,
-          temperature: 0.5
-        }, signal);
-
-        console.log('Standard section content generated successfully');
-        return response.choices[0].message.content;
+        if (vectorStoreId) {
+          const ragResponse = await vectorStoreService.generateContentWithRAG(
+            vectorStoreId,
+            systemPrompt,
+            userPrompt,
+            1800
+          );
+          
+          console.log('✅ RAG section content generated successfully');
+          return ragResponse;
+        }
       }
+      
+      // Use standard chat completion with web context
+      console.log('🤖 Using standard content generation (no RAG)');
+      const standardResponse = await this.makeRequest('/chat/completions', {
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 3000,
+        temperature: 0.5
+      }, signal);
+
+      console.log('✅ Standard section content generated successfully');
+      return standardResponse.choices[0].message.content;
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('❌ Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -439,7 +470,7 @@ Objectives: Provide practical, actionable content that readers can implement imm
 
         return fallbackResponse.choices[0].message.content;
       } catch (fallbackError) {
-        console.error('Fallback generation also failed:', fallbackError);
+        console.error('❌ Fallback generation also failed:', fallbackError);
         return `<h2>${lessonTitle}</h2><p>${lessonDescription}</p><p>Content generation failed. Please try again later.</p>`;
       }
     }
