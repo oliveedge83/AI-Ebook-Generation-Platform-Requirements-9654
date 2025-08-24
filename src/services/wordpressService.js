@@ -3,11 +3,14 @@ import axios from 'axios';
 class WordPressService {
   constructor(url, username, password) {
     this.url = url;
-    this.auth = { username, password };
-    
+    this.auth = {
+      username,
+      password
+    };
+
     // Log initialization
     console.log(`Initializing WordPress service for URL: ${url}`);
-    
+
     // Remove trailing slashes from URL for consistency
     if (this.url.endsWith('/')) {
       this.url = this.url.slice(0, -1);
@@ -35,11 +38,11 @@ class WordPressService {
       }
       if (error.message === 'Network Error') {
         return `Network Error: Cannot connect to ${this.url}. This could be due to:
-• CORS policy blocking the request
-• WordPress site is down or unreachable
-• SSL/TLS certificate issues
-• Firewall or network restrictions
-• WordPress REST API is disabled`;
+        • CORS policy blocking the request
+        • WordPress site is down or unreachable
+        • SSL/TLS certificate issues
+        • Firewall or network restrictions
+        • WordPress REST API is disabled`;
       }
       return `Network connection failed to ${this.url}: ${error.message}`;
     }
@@ -96,18 +99,24 @@ class WordPressService {
       console.log('Validating WordPress connection...');
       const config = this.createAxiosConfig(`${this.url}/wp-json`);
       const response = await axios(config);
-      
+
       if (response.status === 200) {
         console.log('WordPress connection validated successfully');
-        return { success: true, data: response.data };
+        return {
+          success: true,
+          data: response.data
+        };
       } else {
         console.error('WordPress API responded with non-200 status:', response.status);
-        return { success: false, error: `API responded with status: ${response.status}` };
+        return {
+          success: false,
+          error: `API responded with status: ${response.status}`
+        };
       }
     } catch (error) {
       const errorMessage = this.parseError(error, 'connection validation');
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: errorMessage,
         details: {
           originalError: error.message,
@@ -127,20 +136,26 @@ class WordPressService {
       const config = this.createAxiosConfig(`${this.url}/wp-json`);
       // Remove auth for this check as it should be publicly accessible
       delete config.auth;
-      
+
       const response = await axios(config);
-      
+
       if (response.status === 200) {
         console.log('WordPress REST API is available');
-        return { available: true, data: response.data };
+        return {
+          available: true,
+          data: response.data
+        };
       } else {
         console.warn('WordPress REST API responded with non-200 status:', response.status);
-        return { available: false, error: `API responded with status: ${response.status}` };
+        return {
+          available: false,
+          error: `API responded with status: ${response.status}`
+        };
       }
     } catch (error) {
       const errorMessage = this.parseError(error, 'REST API availability check');
-      return { 
-        available: false, 
+      return {
+        available: false,
         error: errorMessage,
         details: {
           originalError: error.message,
@@ -157,23 +172,30 @@ class WordPressService {
       console.log('Verifying WordPress user credentials...');
       const config = this.createAxiosConfig(`${this.url}/wp-json/wp/v2/users/me`);
       const response = await axios(config);
-      
+
       if (response.status === 200) {
         console.log('WordPress credentials verified successfully');
-        return { valid: true, user: response.data };
+        return {
+          valid: true,
+          user: response.data
+        };
       } else {
         console.warn('WordPress credentials check responded with non-200 status:', response.status);
-        return { valid: false, error: `API responded with status: ${response.status}` };
+        return {
+          valid: false,
+          error: `API responded with status: ${response.status}`
+        };
       }
     } catch (error) {
       const errorMessage = this.parseError(error, 'credentials verification');
-      
       if (error.response?.status === 401) {
-        return { valid: false, error: 'Invalid username or password' };
+        return {
+          valid: false,
+          error: 'Invalid username or password'
+        };
       }
-      
-      return { 
-        valid: false, 
+      return {
+        valid: false,
         error: errorMessage,
         details: {
           originalError: error.message,
@@ -184,10 +206,9 @@ class WordPressService {
     }
   }
 
-  // Validate that required CUSTOM POST TYPES exist (NOT regular posts)
+  // Validate that required CUSTOM POST TYPES exist
   async validatePostTypes() {
     console.log('Validating WordPress CUSTOM POST TYPES...');
-    
     const customPostTypes = ['book', 'chapter', 'chaptertopic', 'topicsection'];
     const results = {};
 
@@ -197,36 +218,45 @@ class WordPressService {
         console.log(`Checking if CUSTOM POST TYPE '${type}' exists...`);
         const config = this.createAxiosConfig(`${this.url}/wp-json/wp/v2/types/${type}`);
         const response = await axios(config);
-        
+
         if (response.status === 200) {
           console.log(`✅ Custom post type '${type}' found and available`);
-          results[type] = { available: true, data: response.data };
+          results[type] = {
+            available: true,
+            data: response.data
+          };
         } else {
           console.log(`❌ Custom post type '${type}' not found (non-200 response)`);
-          results[type] = { available: false, error: `API responded with status: ${response.status}` };
+          results[type] = {
+            available: false,
+            error: `API responded with status: ${response.status}`
+          };
         }
       } catch (error) {
         const errorMessage = this.parseError(error, `${type} custom post type check`);
         console.log(`❌ Custom post type '${type}' not found:`, errorMessage);
-        results[type] = { available: false, error: errorMessage };
+        results[type] = {
+          available: false,
+          error: errorMessage
+        };
       }
     }
 
     return results;
   }
 
-  // Create book using CUSTOM POST TYPE 'book' ONLY
+  // Create book using CUSTOM POST TYPE 'book' with Secure Custom Posts
   async createBook(title, content) {
     console.log(`📚 Creating BOOK using custom post type 'book': ${title}`);
     console.log(`🔗 WordPress URL: ${this.url}`);
-    
+
     try {
       // Use ONLY the custom post type endpoint for 'book'
       const endpoint = `${this.url}/wp-json/wp/v2/book`;
       console.log(`📍 Using CUSTOM POST TYPE endpoint: ${endpoint}`);
-      
-      // 🔧 FIXED: Books are root-level posts and don't need meta fields
-      // Only send the basic post data - no meta_box or ebook_post_type fields
+
+      // 🔧 NEW APPROACH: Books are root-level posts and don't need relationship fields
+      // Only send the basic post data for Secure Custom Posts
       const postData = {
         title,
         content,
@@ -238,7 +268,7 @@ class WordPressService {
         contentLength: content.length,
         status: postData.status,
         endpoint: endpoint,
-        note: 'No meta fields for books - they are root level'
+        note: 'Using Secure Custom Posts - No relationship fields for root-level books'
       }));
 
       // Test connection first
@@ -255,12 +285,15 @@ class WordPressService {
         const bookId = response.data.id;
         console.log('✅ BOOK created successfully with ID:', bookId);
         console.log('🔗 Book URL:', response.data.link);
-        
+
         if (!bookId) {
           throw new Error('Book created but no valid ID returned from WordPress');
         }
 
-        return { ...response.data, id: bookId };
+        return {
+          ...response.data,
+          id: bookId
+        };
       } else {
         console.error('❌ Unexpected response status:', response.status);
         throw new Error(`Unexpected response status: ${response.status}`);
@@ -268,25 +301,26 @@ class WordPressService {
     } catch (error) {
       console.error('❌ Error creating book:', error);
       const errorMessage = this.parseError(error, 'book creation');
-      
       console.error('Book creation failed with details:', {
         endpoint: `${this.url}/wp-json/wp/v2/book`,
-        auth: { username: this.auth.username, hasPassword: !!this.auth.password },
+        auth: {
+          username: this.auth.username,
+          hasPassword: !!this.auth.password
+        },
         errorType: error.constructor.name,
         errorCode: error.code,
         hasResponse: !!error.response,
         responseStatus: error.response?.status,
         responseData: error.response?.data
       });
-      
       throw new Error(`Failed to create book: ${errorMessage}`);
     }
   }
 
-  // Create chapter using CUSTOM POST TYPE 'chapter' ONLY with META_BOX fields
+  // Create chapter using CUSTOM POST TYPE 'chapter' with ACF relationship field
   async createChapter(title, content, parentBookId) {
     console.log(`📖 Creating CHAPTER using custom post type 'chapter': ${title} under book ID: ${parentBookId}`);
-    
+
     if (!parentBookId || isNaN(parseInt(parentBookId))) {
       throw new Error(`Invalid parent book ID: ${parentBookId}`);
     }
@@ -295,19 +329,16 @@ class WordPressService {
       // Use ONLY the custom post type endpoint for 'chapter'
       const endpoint = `${this.url}/wp-json/wp/v2/chapter`;
       console.log(`📍 Using CUSTOM POST TYPE endpoint: ${endpoint}`);
-      
-      // Prepare data for WordPress custom post type 'chapter' with META_BOX fields
-      // IMPORTANT: Meta Box plugin requires 'meta_box' object, NOT 'meta'
-      // ALSO: Include ebook_post_type field as shown in your cURL example
+
+      // 🔧 CORRECTED APPROACH: Use 'acf' key for ACF fields in Secure Custom Posts
+      // This follows ACF's standard REST API structure post-5.11
       const postData = {
         title,
         content,
         status: 'publish',
-        // META_BOX plugin fields need to be wrapped in 'meta_box' object (not 'meta')
-        meta_box: {
-          ebook_parent_post_id: parseInt(parentBookId),
-          ebook_parent_post_type: 'book',
-          ebook_post_type: 'chapter' // Only for child posts, not books
+        // ACF fields using the correct 'acf' key
+        acf: {
+          chapter_parent_book: parseInt(parentBookId) // ACF relationship field linking to book
         }
       };
 
@@ -316,8 +347,9 @@ class WordPressService {
         contentLength: content.length,
         status: postData.status,
         parentBookId: parentBookId,
-        meta_box: postData.meta_box,
-        endpoint: endpoint
+        acfFields: postData.acf,
+        endpoint: endpoint,
+        note: 'Using Secure Custom Posts with ACF relationship field: chapter_parent_book (using acf key)'
       }));
 
       const config = this.createAxiosConfig(endpoint, postData, 'POST');
@@ -327,35 +359,38 @@ class WordPressService {
         const chapterId = response.data.id;
         console.log('✅ CHAPTER created successfully with ID:', chapterId);
         console.log('🔗 Chapter URL:', response.data.link);
-        console.log('🔗 Chapter linked to book via META_BOX fields');
-        
+        console.log('🔗 Chapter linked to book via ACF relationship field: chapter_parent_book');
+
         if (!chapterId) {
           throw new Error('Chapter created but no valid ID returned from WordPress');
         }
 
-        return { ...response.data, id: chapterId };
+        return {
+          ...response.data,
+          id: chapterId
+        };
       } else {
         console.error('❌ Unexpected response status:', response.status);
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
       const errorMessage = this.parseError(error, 'chapter creation');
-      
       console.error('Chapter creation error details:', {
         endpoint: `${this.url}/wp-json/wp/v2/chapter`,
         parentBookId,
+        acfFieldUsed: 'chapter_parent_book',
+        acfKeyStructure: 'acf',
         hasResponse: !!error.response,
         responseData: error.response?.data
       });
-      
       throw new Error(`Failed to create chapter: ${errorMessage}`);
     }
   }
 
-  // Create chapter topic using CUSTOM POST TYPE 'chaptertopic' ONLY with META_BOX fields
+  // Create chapter topic using CUSTOM POST TYPE 'chaptertopic' with ACF relationship field
   async createChapterTopic(title, content, parentChapterId) {
     console.log(`📝 Creating CHAPTER TOPIC using custom post type 'chaptertopic': ${title} under chapter ID: ${parentChapterId}`);
-    
+
     if (!parentChapterId || isNaN(parseInt(parentChapterId))) {
       throw new Error(`Invalid parent chapter ID: ${parentChapterId}`);
     }
@@ -364,19 +399,16 @@ class WordPressService {
       // Use ONLY the custom post type endpoint for 'chaptertopic'
       const endpoint = `${this.url}/wp-json/wp/v2/chaptertopic`;
       console.log(`📍 Using CUSTOM POST TYPE endpoint: ${endpoint}`);
-      
-      // Prepare data for WordPress custom post type 'chaptertopic' with META_BOX fields
-      // IMPORTANT: Meta Box plugin requires 'meta_box' object, NOT 'meta'
-      // ALSO: Include ebook_post_type field as shown in your cURL example
+
+      // 🔧 CORRECTED APPROACH: Use 'acf' key for ACF fields in Secure Custom Posts
+      // This follows ACF's standard REST API structure post-5.11
       const postData = {
         title,
         content,
         status: 'publish',
-        // META_BOX plugin fields need to be wrapped in 'meta_box' object (not 'meta')
-        meta_box: {
-          ebook_parent_post_id: parseInt(parentChapterId),
-          ebook_parent_post_type: 'chapter',
-          ebook_post_type: 'chaptertopic' // Only for child posts, not books
+        // ACF fields using the correct 'acf' key
+        acf: {
+          topic_parent_chapter: parseInt(parentChapterId) // ACF relationship field linking to chapter
         }
       };
 
@@ -385,8 +417,9 @@ class WordPressService {
         contentLength: content.length,
         status: postData.status,
         parentChapterId: parentChapterId,
-        meta_box: postData.meta_box,
-        endpoint: endpoint
+        acfFields: postData.acf,
+        endpoint: endpoint,
+        note: 'Using Secure Custom Posts with ACF relationship field: topic_parent_chapter (using acf key)'
       }));
 
       const config = this.createAxiosConfig(endpoint, postData, 'POST');
@@ -396,27 +429,38 @@ class WordPressService {
         const topicId = response.data.id;
         console.log('✅ CHAPTER TOPIC created successfully with ID:', topicId);
         console.log('🔗 Chapter topic URL:', response.data.link);
-        console.log('🔗 Topic linked to chapter via META_BOX fields');
-        
+        console.log('🔗 Topic linked to chapter via ACF relationship field: topic_parent_chapter');
+
         if (!topicId) {
           throw new Error('Topic created but no valid ID returned from WordPress');
         }
 
-        return { ...response.data, id: topicId };
+        return {
+          ...response.data,
+          id: topicId
+        };
       } else {
         console.error('❌ Unexpected response status:', response.status);
         throw new Error(`Unexpected response status: ${response.status}`);
       }
     } catch (error) {
       const errorMessage = this.parseError(error, 'chapter topic creation');
+      console.error('Chapter topic creation error details:', {
+        endpoint: `${this.url}/wp-json/wp/v2/chaptertopic`,
+        parentChapterId,
+        acfFieldUsed: 'topic_parent_chapter',
+        acfKeyStructure: 'acf',
+        hasResponse: !!error.response,
+        responseData: error.response?.data
+      });
       throw new Error(`Failed to create chapter topic: ${errorMessage}`);
     }
   }
 
-  // Create topic section using CUSTOM POST TYPE 'topicsection' ONLY with META_BOX fields
+  // Create topic section using CUSTOM POST TYPE 'topicsection' with ACF relationship field
   async createTopicSection(title, content, parentTopicId) {
     console.log(`📄 Creating TOPIC SECTION using custom post type 'topicsection': ${title} under topic ID: ${parentTopicId}`);
-    
+
     if (!parentTopicId || isNaN(parseInt(parentTopicId))) {
       throw new Error(`Invalid parent topic ID: ${parentTopicId}`);
     }
@@ -425,18 +469,16 @@ class WordPressService {
       // Use ONLY the custom post type endpoint for 'topicsection'
       const endpoint = `${this.url}/wp-json/wp/v2/topicsection`;
       console.log(`📍 Using CUSTOM POST TYPE endpoint: ${endpoint}`);
-      
-      // 🔧 CRITICAL FIX: Ensure the topic section is linked to the chaptertopic (NOT chapter)
-      // The parentTopicId should be the ID of a 'chaptertopic' post, not a 'chapter' post
+
+      // 🔧 CORRECTED APPROACH: Use 'acf' key for ACF fields in Secure Custom Posts
+      // This follows ACF's standard REST API structure post-5.11
       const postData = {
         title,
         content,
         status: 'publish',
-        // META_BOX plugin fields need to be wrapped in 'meta_box' object (not 'meta')
-        meta_box: {
-          ebook_parent_post_id: parseInt(parentTopicId), // This should be the chaptertopic ID
-          ebook_parent_post_type: 'chaptertopic', // 🔧 FIXED: Should be 'chaptertopic', not 'chapter'
-          ebook_post_type: 'topicsection' // Only for child posts, not books
+        // ACF fields using the correct 'acf' key
+        acf: {
+          section_parent_topic: parseInt(parentTopicId) // ACF relationship field linking to chaptertopic
         }
       };
 
@@ -445,9 +487,9 @@ class WordPressService {
         contentLength: content.length,
         status: postData.status,
         parentTopicId: parentTopicId,
-        meta_box: postData.meta_box,
+        acfFields: postData.acf,
         endpoint: endpoint,
-        note: '🔧 FIXED: ebook_parent_post_type is now chaptertopic (was incorrectly chapter before)'
+        note: 'Using Secure Custom Posts with ACF relationship field: section_parent_topic (using acf key)'
       }));
 
       const config = this.createAxiosConfig(endpoint, postData, 'POST');
@@ -457,14 +499,17 @@ class WordPressService {
         const sectionId = response.data.id;
         console.log('✅ TOPIC SECTION created successfully with ID:', sectionId);
         console.log('🔗 Topic section URL:', response.data.link);
-        console.log('🔗 Section linked to chaptertopic via META_BOX fields');
+        console.log('🔗 Section linked to chaptertopic via ACF relationship field: section_parent_topic');
         console.log(`🔧 Parent relationship: topicsection(${sectionId}) -> chaptertopic(${parentTopicId})`);
-        
+
         if (!sectionId) {
           throw new Error('Section created but no valid ID returned from WordPress');
         }
 
-        return { ...response.data, id: sectionId };
+        return {
+          ...response.data,
+          id: sectionId
+        };
       } else {
         console.error('❌ Unexpected response status:', response.status);
         throw new Error(`Unexpected response status: ${response.status}`);
@@ -475,6 +520,8 @@ class WordPressService {
         endpoint: `${this.url}/wp-json/wp/v2/topicsection`,
         parentTopicId,
         expectedParentType: 'chaptertopic',
+        acfFieldUsed: 'section_parent_topic',
+        acfKeyStructure: 'acf',
         hasResponse: !!error.response,
         responseData: error.response?.data
       });
