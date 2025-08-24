@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState } from 'react';
 import { useSettings } from './SettingsContext';
 import OpenAIService from '../services/openaiService';
+import PerplexityService from '../services/perplexityService';
 import WordPressService from '../services/wordpressService';
 import WebhookService from '../services/webhookService';
 
@@ -46,9 +47,8 @@ export const EbookProvider = ({ children }) => {
       status: 'draft',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      knowledgeLibraries: {} // Initialize empty knowledge libraries
+      knowledgeLibraries: {}
     };
-
     setProjects(prev => [newProject, ...prev]);
     return newProject;
   };
@@ -72,44 +72,120 @@ export const EbookProvider = ({ children }) => {
   };
 
   const generateOutline = async (projectData) => {
-    // Check if OpenAI credentials are configured
-    if (!settings.openaiPrimary) {
-      throw new Error('OpenAI API key is not configured. Please check your settings.');
+    // ✅ FIXED: API key validation with proper method checking
+    console.log('🔍 Checking API key configuration...');
+    console.log('Research method:', projectData.researchLLM);
+    console.log('Content generation method:', projectData.contentGenerationLLM);
+
+    // Check research method API key
+    if (projectData.researchLLM === 'perplexity') {
+      if (!settings.perplexityPrimary) {
+        throw new Error('Perplexity API key is not configured for research. Please check your settings.');
+      }
+      console.log('✅ Perplexity API key found for research');
+    } else if (projectData.researchLLM === 'openai') {
+      if (!settings.openaiPrimary) {
+        throw new Error('OpenAI API key is not configured for research. Please check your settings.');
+      }
+      console.log('✅ OpenAI API key found for research');
+    }
+
+    // Check content generation method API key
+    if (projectData.contentGenerationLLM === 'perplexity') {
+      if (!settings.perplexityPrimary) {
+        throw new Error('Perplexity API key is not configured for content generation. Please check your settings.');
+      }
+      if (!settings.openaiPrimary) {
+        throw new Error('OpenAI API key is also required when using Perplexity for content generation (for final content synthesis). Please check your settings.');
+      }
+      console.log('✅ Both Perplexity and OpenAI API keys found for hybrid content generation');
+    } else if (projectData.contentGenerationLLM === 'openai') {
+      if (!settings.openaiPrimary) {
+        throw new Error('OpenAI API key is not configured for content generation. Please check your settings.');
+      }
+      console.log('✅ OpenAI API key found for content generation');
     }
 
     setIsGenerating(true);
-    try {
-      // Initialize OpenAI service with primary key
-      let openaiService = new OpenAIService(settings.openaiPrimary);
 
-      // Step 1: Market Research using gpt-4o-mini
+    try {
+      let researchBrief;
+
+      // Step 1: Market Research using selected LLM
       setGenerationProgress({
         step: 'research',
         progress: 10,
-        message: 'Conducting market and audience research...'
+        message: `Conducting market and audience research using ${projectData.researchLLM === 'perplexity' ? 'Perplexity Sonar Research' : 'OpenAI'}...`
       });
 
-      let researchBrief;
-      try {
-        researchBrief = await openaiService.generateMarketResearch(
-          projectData.niche,
-          projectData.mustHaveAspects,
-          projectData.otherConsiderations
-        );
-      } catch (error) {
-        // Try fallback API key if available
-        if (settings.openaiFallback && error.message.includes('rate_limit_exceeded')) {
-          console.log('Primary API key rate limited, trying fallback...');
-          openaiService = new OpenAIService(settings.openaiFallback);
+      if (projectData.researchLLM === 'perplexity') {
+        console.log('🔍 Using Perplexity Sonar for market research...');
+        let perplexityService = new PerplexityService(settings.perplexityPrimary);
+        
+        try {
+          researchBrief = await perplexityService.generateDeepResearch(
+            projectData.niche,
+            projectData.mustHaveAspects,
+            projectData.otherConsiderations
+          );
+          console.log('✅ Perplexity Sonar research completed successfully');
+        } catch (error) {
+          console.error('❌ Perplexity research failed:', error.message);
+          
+          if (settings.perplexityFallback && error.message.includes('rate_limit_exceeded')) {
+            console.log('🔄 Primary Perplexity key rate limited, trying fallback...');
+            perplexityService = new PerplexityService(settings.perplexityFallback);
+            researchBrief = await perplexityService.generateDeepResearch(
+              projectData.niche,
+              projectData.mustHaveAspects,
+              projectData.otherConsiderations
+            );
+            console.log('✅ Fallback Perplexity research completed successfully');
+          } else {
+            throw new Error(`Perplexity research failed: ${error.message}. Please check your Perplexity API key in settings.`);
+          }
+        }
+      } else {
+        console.log('🔍 Using OpenAI for market research...');
+        // ✅ FIXED: Use correct API key for OpenAI research
+        let openaiService = new OpenAIService(settings.openaiPrimary);
+        
+        try {
           researchBrief = await openaiService.generateMarketResearch(
             projectData.niche,
             projectData.mustHaveAspects,
             projectData.otherConsiderations
           );
-        } else {
-          throw error;
+          console.log('✅ OpenAI research completed successfully');
+        } catch (error) {
+          console.error('❌ OpenAI research failed:', error.message);
+          
+          if (settings.openaiFallback && error.message.includes('rate_limit_exceeded')) {
+            console.log('🔄 Primary OpenAI key rate limited, trying fallback...');
+            openaiService = new OpenAIService(settings.openaiFallback);
+            researchBrief = await openaiService.generateMarketResearch(
+              projectData.niche,
+              projectData.mustHaveAspects,
+              projectData.otherConsiderations
+            );
+            console.log('✅ Fallback OpenAI research completed successfully');
+          } else {
+            throw new Error(`OpenAI research failed: ${error.message}. Please check your OpenAI API key in settings.`);
+          }
         }
       }
+
+      // Validate research brief
+      if (!researchBrief || researchBrief.trim().length === 0) {
+        throw new Error('Research brief generation failed - empty response received');
+      }
+
+      console.log('📝 Research brief generated successfully');
+      console.log('🔍 Research brief length:', researchBrief.length, 'characters');
+
+      // ✅ Use OpenAI for outline generation steps (always)
+      console.log('📝 Using OpenAI for outline generation steps...');
+      let openaiService = new OpenAIService(settings.openaiPrimary);
 
       // Step 2: Generate Preface and Introduction
       setGenerationProgress({
@@ -123,6 +199,7 @@ export const EbookProvider = ({ children }) => {
         projectData.mustHaveAspects,
         projectData.otherConsiderations
       );
+      console.log('✅ Preface and introduction generated');
 
       // Step 3: Generate Chapter Outline
       setGenerationProgress({
@@ -137,6 +214,7 @@ export const EbookProvider = ({ children }) => {
         projectData.maxChapters,
         projectData.otherConsiderations
       );
+      console.log('✅ Chapter outline generated:', chapters?.length || 0, 'chapters');
 
       // Step 4: Generate detailed topics for each chapter
       setGenerationProgress({
@@ -155,20 +233,20 @@ export const EbookProvider = ({ children }) => {
         });
 
         try {
+          console.log(`🔍 Generating topics for chapter ${chapter.courseNumber}: ${chapter.courseTitle}`);
           const topics = await openaiService.generateChapterTopics(
             researchBrief,
             chapter.courseTitle,
             chapter.courseDescription,
             projectData.mustHaveAspects
           );
+          console.log(`✅ Topics generated for chapter ${chapter.courseNumber}:`, topics?.length || 0, 'topics');
           chaptersWithTopics.push({ ...chapter, topics });
         } catch (error) {
-          console.error(`Error generating topics for chapter ${chapter.courseNumber}:`, error);
-          // Add chapter without topics if there's an error
+          console.error(`❌ Error generating topics for chapter ${chapter.courseNumber}:`, error);
           chaptersWithTopics.push({ ...chapter, topics: [] });
         }
 
-        // Small delay to avoid rate limiting
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
@@ -179,13 +257,24 @@ export const EbookProvider = ({ children }) => {
         message: 'Finalizing ebook outline...'
       });
 
-      // Extract title from research brief or generate one
+      // ✅ FIXED: Better title extraction and fallback
       const titleMatch = researchBrief.match(/ebookTitle[":]\s*["']([^"']+)["']/i);
       const generatedTitle = titleMatch ? titleMatch[1] : `${projectData.niche} Mastery Guide`;
 
+      console.log('📚 Generated title:', generatedTitle);
+      console.log('📊 Final outline structure:', {
+        title: generatedTitle,
+        chaptersCount: chaptersWithTopics.length,
+        totalTopics: chaptersWithTopics.reduce((sum, ch) => sum + (ch.topics?.length || 0), 0),
+        totalLessons: chaptersWithTopics.reduce((sum, ch) => sum + (ch.topics?.reduce((topicSum, topic) => topicSum + (topic.lessons?.length || 0), 0) || 0), 0)
+      });
+
+      // ✅ FIXED: Properly construct the outline object
       const outline = {
         title: generatedTitle,
         researchBrief,
+        researchMethod: projectData.researchLLM,
+        contentGenerationMethod: projectData.contentGenerationLLM,
         preface: prefaceAndIntro.preface || '<h2>Preface</h2><p>This comprehensive guide will transform your understanding...</p>',
         introduction: prefaceAndIntro.introduction || '<h2>Introduction</h2><p>Welcome to your journey toward mastery...</p>',
         chapters: chaptersWithTopics
@@ -197,28 +286,31 @@ export const EbookProvider = ({ children }) => {
         message: 'Ebook outline generated successfully!'
       });
 
+      console.log('✅ Complete outline generated successfully');
       return outline;
 
     } catch (error) {
-      console.error('Error generating outline:', error);
+      console.error('❌ Error generating outline:', error);
       throw new Error(error.message || 'Failed to generate ebook outline. Please check your API keys and try again.');
     } finally {
       setIsGenerating(false);
-      setGenerationProgress({ step: '', progress: 0, message: '' });
+      setGenerationProgress({
+        step: '',
+        progress: 0,
+        message: ''
+      });
     }
   };
 
   const abortPublishing = () => {
     console.log('🛑 ABORT REQUESTED - Setting abort flag to true');
     setShouldAbortProcessing(true);
-
-    // Also abort any ongoing HTTP requests if we have an abort controller
+    
     if (abortController) {
       console.log('🛑 Aborting HTTP requests via AbortController');
       abortController.abort();
     }
 
-    // Update progress to show aborting state
     setPublishingProgress(prev => ({
       ...prev,
       step: 'aborting',
@@ -234,24 +326,17 @@ export const EbookProvider = ({ children }) => {
     setBackgroundProcessing(false);
   };
 
-  // Helper function to get the appropriate vector store ID for a lesson
   const getVectorStoreForLesson = (knowledgeLibraries, chapterIndex, topicIndex, lessonIndex) => {
     const lessonKey = `lesson-${chapterIndex}-${topicIndex}-${lessonIndex}`;
     const topicKey = `chapter-${chapterIndex}`;
-
-    // Priority: lesson-specific > chapter-level
     return knowledgeLibraries[lessonKey] || knowledgeLibraries[topicKey] || null;
   };
 
   const publishToWordPress = async (project) => {
-    // Create new abort controller for this publishing session
     const controller = new AbortController();
     setAbortController(controller);
-
-    // Reset abort flag
     setShouldAbortProcessing(false);
 
-    // Check if WordPress credentials are configured
     if (!settings.wordpressUrl || !settings.wordpressUsername || !settings.wordpressPassword) {
       throw new Error('WordPress credentials are not configured. Please check your settings.');
     }
@@ -269,22 +354,18 @@ export const EbookProvider = ({ children }) => {
     });
 
     try {
-      // Initialize services
       const wpService = new WordPressService(
         settings.wordpressUrl,
         settings.wordpressUsername,
         settings.wordpressPassword
       );
-      
-      // 🔗 Initialize Webhook Service
       const webhookService = new WebhookService();
 
-      // Check for abort before each major step
+      // Validate connection
       if (shouldAbortProcessing) {
         throw new Error('Publishing process aborted by user');
       }
 
-      // Validate WordPress connection
       setPublishingProgress(prev => ({
         ...prev,
         message: 'Validating WordPress connection...'
@@ -295,71 +376,49 @@ export const EbookProvider = ({ children }) => {
         throw new Error(`WordPress connection failed: ${connectionCheck.error}`);
       }
 
-      // Check for abort
-      if (shouldAbortProcessing) {
-        throw new Error('Publishing process aborted by user');
-      }
+      // ✅ Initialize services based on content generation method with proper API keys
+      const contentGenerationMethod = project.outline?.contentGenerationMethod || 'openai';
+      console.log(`🔧 Using content generation method: ${contentGenerationMethod}`);
 
-      setPublishingProgress(prev => ({
-        ...prev,
-        message: 'WordPress connection validated, checking API availability...'
-      }));
+      let openaiService;
+      let perplexityService = null;
 
-      // Check if WordPress REST API is available
-      const apiCheck = await wpService.checkRestApiAvailability();
-      if (!apiCheck.available) {
-        throw new Error(`WordPress REST API not available: ${apiCheck.error}`);
-      }
-
-      // Check for abort
-      if (shouldAbortProcessing) {
-        throw new Error('Publishing process aborted by user');
-      }
-
-      setPublishingProgress(prev => ({
-        ...prev,
-        message: 'Verifying WordPress credentials...'
-      }));
-
-      // Verify WordPress credentials
-      const credentialsCheck = await wpService.verifyCredentials();
-      if (!credentialsCheck.valid) {
-        throw new Error(`WordPress credentials invalid: ${credentialsCheck.error}`);
-      }
-
-      // Check for abort
-      if (shouldAbortProcessing) {
-        throw new Error('Publishing process aborted by user');
-      }
-
-      setPublishingProgress(prev => ({
-        ...prev,
-        debug: {
-          ...prev.debug,
-          connectionCheck,
-          apiCheck,
-          credentialsCheck
+      if (contentGenerationMethod === 'perplexity') {
+        console.log('🔧 Initializing hybrid Perplexity + OpenAI services...');
+        if (!settings.openaiPrimary) {
+          throw new Error('OpenAI API key is required for content generation even when using Perplexity for web context. Please configure OpenAI API key in settings.');
         }
-      }));
+        openaiService = new OpenAIService(settings.openaiPrimary);
+        console.log('✅ OpenAI service initialized for final content generation');
 
-      // Initialize OpenAI service for content generation
-      const openaiService = new OpenAIService(settings.openaiPrimary);
-      // Use fallback key if available
+        if (settings.perplexityPrimary) {
+          perplexityService = new PerplexityService(settings.perplexityPrimary);
+          console.log('✅ Perplexity Sonar service initialized for web search context');
+        } else {
+          console.warn('⚠️ Perplexity not configured, will skip web search context');
+        }
+      } else {
+        console.log('🔧 Initializing OpenAI-only service...');
+        if (!settings.openaiPrimary) {
+          throw new Error('OpenAI API key is required for content generation. Please configure OpenAI API key in settings.');
+        }
+        openaiService = new OpenAIService(settings.openaiPrimary);
+        console.log('✅ OpenAI service initialized for direct content generation');
+      }
+
       const fallbackOpenaiService = settings.openaiFallback ? new OpenAIService(settings.openaiFallback) : null;
-
       const outline = project.outline;
+
       if (!outline) {
         throw new Error('No outline available for publishing');
       }
 
-      // Get knowledge libraries from project
       const knowledgeLibraries = project.knowledgeLibraries || {};
 
-      // Calculate total items to track progress
+      // Calculate total items
       let totalItems = 1; // Book
       totalItems += outline.chapters.length; // Chapters
 
-      // Count topics and lessons
       let topicCount = 0;
       let lessonCount = 0;
       outline.chapters.forEach(chapter => {
@@ -372,7 +431,6 @@ export const EbookProvider = ({ children }) => {
           });
         }
       });
-
       totalItems += topicCount + lessonCount;
 
       setPublishingProgress(prev => ({
@@ -387,29 +445,26 @@ export const EbookProvider = ({ children }) => {
           ...prev.debug,
           totalItems,
           topicCount,
-          lessonCount
+          lessonCount,
+          contentMethod: contentGenerationMethod
         }
       }));
 
-      // Step 1: Create the book
+      // Create the book
       const bookContent = `
         ${outline.preface || ''}
         ${outline.introduction || ''}
         ${outline.researchBrief ? `<div class="research-brief">${outline.researchBrief}</div>` : ''}
       `;
 
-      console.log('Creating book in WordPress:', outline.title);
       const book = await wpService.createBook(outline.title, bookContent);
-
       if (!book || !book.id) {
         throw new Error('Failed to create book: No valid book ID returned');
       }
 
       const bookId = book.id;
       console.log('✅ Book created with ID:', bookId);
-      console.log('📖 Book details:', book);
 
-      // Check for abort after book creation
       if (shouldAbortProcessing) {
         throw new Error('Publishing process aborted by user');
       }
@@ -427,12 +482,11 @@ export const EbookProvider = ({ children }) => {
         }
       }));
 
-      // Step 2: Create the complete hierarchical structure
+      // Create hierarchical structure
       const createdStructure = [];
-      let processedCount = 1; // Start with 1 for the book
+      let processedCount = 1;
 
       for (let chapterIndex = 0; chapterIndex < outline.chapters.length; chapterIndex++) {
-        // Check if processing should be aborted
         if (shouldAbortProcessing) {
           console.log('🛑 ABORT DETECTED - Stopping chapter creation');
           throw new Error('Publishing process aborted by user');
@@ -448,27 +502,21 @@ export const EbookProvider = ({ children }) => {
           message: `Creating chapter ${chapterIndex + 1} of ${outline.chapters.length}...`
         }));
 
-        // Create chapter with book as parent
-        console.log(`📚 Creating chapter: ${chapterTitle} under book ID: ${bookId}`);
         const chapterPost = await wpService.createChapter(chapterTitle, chapterContent, bookId);
-
         if (!chapterPost || !chapterPost.id) {
           console.error('Failed to create chapter: No valid chapter ID returned');
-          continue; // Skip this chapter but continue with others
+          continue;
         }
 
         const chapterId = chapterPost.id;
         console.log('✅ Chapter created with ID:', chapterId);
 
-        // 🔗 WEBHOOK CALL: Link Book to Chapter
-        console.log('🔗 Calling webhook to link book to chapter...');
+        // Webhook call
         const bookToChapterResult = await webhookService.linkBookToChapter(bookId, chapterId);
-        
         if (bookToChapterResult.success) {
           console.log('✅ Book-to-Chapter webhook successful');
         } else {
           console.warn('⚠️ Book-to-Chapter webhook failed:', bookToChapterResult.error);
-          // Continue processing even if webhook fails
         }
 
         processedCount++;
@@ -487,15 +535,13 @@ export const EbookProvider = ({ children }) => {
           topics: []
         };
 
-        // Skip topics if none exist
         if (!chapter.topics || chapter.topics.length === 0) {
           createdStructure.push(chapterStructure);
           continue;
         }
 
-        // Create all topics for this chapter
+        // Create topics for this chapter
         for (let topicIndex = 0; topicIndex < chapter.topics.length; topicIndex++) {
-          // Check if processing should be aborted
           if (shouldAbortProcessing) {
             console.log('🛑 ABORT DETECTED - Stopping topic creation');
             throw new Error('Publishing process aborted by user');
@@ -514,7 +560,6 @@ export const EbookProvider = ({ children }) => {
           console.log('🤖 Generating topic introduction for:', topicTitle);
           let topicIntroduction;
           try {
-            // Check for abort before AI generation
             if (shouldAbortProcessing) {
               console.log('🛑 ABORT DETECTED - Stopping AI generation for topic');
               throw new Error('Publishing process aborted by user');
@@ -529,21 +574,16 @@ export const EbookProvider = ({ children }) => {
               topic.lessons
             );
           } catch (error) {
-            // Check if this is an abort error
             if (error.message.includes('aborted')) {
               throw error;
             }
-
             console.error('Error generating topic introduction with primary key:', error);
-            // Try fallback key if available
             if (fallbackOpenaiService) {
               console.log('Using fallback API key for topic introduction');
               try {
-                // Check for abort before fallback
                 if (shouldAbortProcessing) {
                   throw new Error('Publishing process aborted by user');
                 }
-
                 topicIntroduction = await fallbackOpenaiService.generateTopicIntroduction(
                   outline.researchBrief,
                   chapter.courseTitle,
@@ -562,28 +602,22 @@ export const EbookProvider = ({ children }) => {
           }
 
           const topicContent = `<p>${topic.topicLearningObjectiveDescription}</p><div class="topic-introduction">${topicIntroduction}</div>`;
-
-          // Create topic with chapter as parent
-          console.log(`📝 Creating chapter topic: ${topicTitle} under chapter ID: ${chapterId}`);
           const topicPost = await wpService.createChapterTopic(topicTitle, topicContent, chapterId);
 
           if (!topicPost || !topicPost.id) {
             console.error('Failed to create topic: No valid topic ID returned');
-            continue; // Skip this topic but continue with others
+            continue;
           }
 
           const topicId = topicPost.id;
           console.log('✅ Topic created with ID:', topicId);
 
-          // 🔗 WEBHOOK CALL: Link Chapter to Topic
-          console.log('🔗 Calling webhook to link chapter to topic...');
+          // Webhook call
           const chapterToTopicResult = await webhookService.linkChapterToTopic(chapterId, topicId);
-          
           if (chapterToTopicResult.success) {
             console.log('✅ Chapter-to-Topic webhook successful');
           } else {
             console.warn('⚠️ Chapter-to-Topic webhook failed:', chapterToTopicResult.error);
-            // Continue processing even if webhook fails
           }
 
           processedCount++;
@@ -602,15 +636,13 @@ export const EbookProvider = ({ children }) => {
             sections: []
           };
 
-          // Skip lessons if none exist
           if (!topic.lessons || topic.lessons.length === 0) {
             chapterStructure.topics.push(topicStructure);
             continue;
           }
 
-          // Create all sections (lessons) for this topic
+          // Create sections (lessons) for this topic
           for (let lessonIndex = 0; lessonIndex < topic.lessons.length; lessonIndex++) {
-            // Check if processing should be aborted
             if (shouldAbortProcessing) {
               console.log('🛑 ABORT DETECTED - Stopping lesson creation');
               throw new Error('Publishing process aborted by user');
@@ -618,28 +650,66 @@ export const EbookProvider = ({ children }) => {
 
             const lesson = topic.lessons[lessonIndex];
             const lessonTitle = lesson.lessonTitle;
-
-            // Get vector store ID for this lesson (RAG enhancement)
             const vectorStoreId = getVectorStoreForLesson(knowledgeLibraries, chapterIndex, topicIndex, lessonIndex);
 
             setPublishingProgress(prev => ({
               ...prev,
-              currentItem: `Generating content for: ${lessonTitle}${vectorStoreId ? ' (with RAG)' : ''}`,
+              currentItem: `Generating content for: ${lessonTitle}${vectorStoreId ? ' (with RAG)' : ''}${perplexityService ? ' (with web context)' : ''}`,
               message: `Creating lesson ${lessonIndex + 1} of ${topic.lessons.length} for topic ${topicIndex + 1}...`
             }));
 
             const fullContext = `
               ${outline.researchBrief}
+              
               Chapter: ${chapter.courseTitle}
               Chapter Description: ${chapter.courseDescription}
               Topic: ${topicTitle}
               Topic Objective: ${topic.topicLearningObjectiveDescription}
             `;
 
-            console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}`);
+            console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${perplexityService ? ' with web context' : ''}`);
+
+            // Get web search context if using Perplexity
+            let webSearchContext = null;
+            if (perplexityService && contentGenerationMethod === 'perplexity') {
+              try {
+                if (shouldAbortProcessing) {
+                  console.log('🛑 ABORT DETECTED - Stopping web search context generation');
+                  throw new Error('Publishing process aborted by user');
+                }
+
+                console.log('🔍 Getting web search context from Perplexity Sonar...');
+                webSearchContext = await perplexityService.generateSectionContext(
+                  outline.title,
+                  lessonTitle
+                );
+
+                if (webSearchContext) {
+                  console.log('✅ Web search context generated successfully');
+                } else {
+                  console.log('ℹ️ No web search context available, continuing without it');
+                }
+              } catch (error) {
+                console.warn('⚠️ Web search context generation failed, continuing without it:', error.message);
+                // Try fallback Perplexity if available
+                if (settings.perplexityFallback && !error.message.includes('aborted')) {
+                  try {
+                    console.log('🔄 Trying fallback Perplexity for web context...');
+                    const fallbackPerplexity = new PerplexityService(settings.perplexityFallback);
+                    webSearchContext = await fallbackPerplexity.generateSectionContext(
+                      outline.title,
+                      lessonTitle
+                    );
+                    console.log('✅ Fallback web search context generated');
+                  } catch (fallbackError) {
+                    console.warn('⚠️ Fallback web search also failed:', fallbackError.message);
+                  }
+                }
+              }
+            }
+
             let sectionContent;
             try {
-              // Check for abort before AI generation
               if (shouldAbortProcessing) {
                 console.log('🛑 ABORT DETECTED - Stopping AI generation for lesson');
                 throw new Error('Publishing process aborted by user');
@@ -652,24 +722,20 @@ export const EbookProvider = ({ children }) => {
                 'Step-by-step guide with examples',
                 'Practical and actionable',
                 lesson.userAddedContext || '',
-                vectorStoreId // Pass vector store ID for RAG
+                vectorStoreId,
+                webSearchContext
               );
             } catch (error) {
-              // Check if this is an abort error
               if (error.message.includes('aborted')) {
                 throw error;
               }
-
               console.error('Error generating section content with primary key:', error);
-              // Try fallback key if available
               if (fallbackOpenaiService) {
                 console.log('Using fallback API key for section content');
                 try {
-                  // Check for abort before fallback
                   if (shouldAbortProcessing) {
                     throw new Error('Publishing process aborted by user');
                   }
-
                   sectionContent = await fallbackOpenaiService.generateSectionContent(
                     fullContext,
                     lessonTitle,
@@ -677,7 +743,8 @@ export const EbookProvider = ({ children }) => {
                     'Step-by-step guide with examples',
                     'Practical and actionable',
                     lesson.userAddedContext || '',
-                    vectorStoreId // Pass vector store ID for RAG
+                    vectorStoreId,
+                    webSearchContext
                   );
                 } catch (fallbackError) {
                   console.error('Fallback also failed:', fallbackError);
@@ -693,27 +760,21 @@ export const EbookProvider = ({ children }) => {
               <div class="lesson-content">${sectionContent}</div>
             `;
 
-            // Create section (lesson) with topic as parent
-            console.log(`📖 Creating topic section: ${lessonTitle} under topic ID: ${topicId}`);
             const sectionPost = await wpService.createTopicSection(lessonTitle, lessonContent, topicId);
-
             if (!sectionPost || !sectionPost.id) {
               console.error('Failed to create lesson: No valid section ID returned');
-              continue; // Skip this lesson but continue with others
+              continue;
             }
 
             const sectionId = sectionPost.id;
             console.log('✅ Section created with ID:', sectionId);
 
-            // 🔗 WEBHOOK CALL: Link Topic to Section
-            console.log('🔗 Calling webhook to link topic to section...');
+            // Webhook call
             const topicToSectionResult = await webhookService.linkTopicToSection(topicId, sectionId);
-            
             if (topicToSectionResult.success) {
               console.log('✅ Topic-to-Section webhook successful');
             } else {
               console.warn('⚠️ Topic-to-Section webhook failed:', topicToSectionResult.error);
-              // Continue processing even if webhook fails
             }
 
             processedCount++;
@@ -723,35 +784,30 @@ export const EbookProvider = ({ children }) => {
               processedItems: processedCount
             }));
 
-            // Add section to topic structure
             topicStructure.sections.push({
               original: lesson,
               post: sectionPost,
               id: sectionId,
-              usedRAG: !!vectorStoreId
+              usedRAG: !!vectorStoreId,
+              usedWebContext: !!webSearchContext
             });
 
-            // Check for abort after lesson creation
             if (shouldAbortProcessing) {
               console.log('🛑 ABORT DETECTED - Stopping after lesson creation');
               throw new Error('Publishing process aborted by user');
             }
           }
 
-          // Add topic to chapter structure
           chapterStructure.topics.push(topicStructure);
 
-          // Check for abort after topic creation
           if (shouldAbortProcessing) {
             console.log('🛑 ABORT DETECTED - Stopping after topic creation');
             throw new Error('Publishing process aborted by user');
           }
         }
 
-        // Add chapter to main structure
         createdStructure.push(chapterStructure);
 
-        // Check for abort after chapter completion
         if (shouldAbortProcessing) {
           console.log('🛑 ABORT DETECTED - Stopping after chapter completion');
           throw new Error('Publishing process aborted by user');
@@ -782,7 +838,9 @@ export const EbookProvider = ({ children }) => {
           createdStructure,
           totalCreated: processedCount,
           hierarchicalStructure: 'Book -> Chapters -> Topics -> Sections',
-          webhooksUsed: 'All three webhook levels implemented'
+          webhooksUsed: 'All three webhook levels implemented',
+          contentMethod: contentGenerationMethod,
+          webContextUsed: !!perplexityService
         }
       });
 
@@ -796,7 +854,6 @@ export const EbookProvider = ({ children }) => {
     } catch (error) {
       console.error('Error publishing to WordPress:', error);
 
-      // Check if this was a user-initiated abort
       if (shouldAbortProcessing || error.message.includes('aborted')) {
         console.log('🛑 Publishing was aborted by user');
         setPublishingProgress(prev => ({
@@ -824,15 +881,10 @@ export const EbookProvider = ({ children }) => {
 
       throw error;
     } finally {
-      // Clean up abort controller
       setAbortController(null);
-
-      // Don't reset isPublishing here if we're in background mode
       if (!backgroundProcessing) {
         setIsPublishing(false);
       }
-
-      // Always reset abort flag
       setShouldAbortProcessing(false);
     }
   };

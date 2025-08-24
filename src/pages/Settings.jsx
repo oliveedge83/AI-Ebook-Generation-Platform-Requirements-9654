@@ -4,22 +4,25 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useSettings } from '../contexts/SettingsContext';
 import WordPressService from '../services/wordpressService';
+import PerplexityService from '../services/perplexityService';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiKey, FiGlobe, FiSave, FiEye, FiEyeOff, FiCheck, FiLoader, FiX, FiLink } = FiIcons;
+const { FiKey, FiGlobe, FiSave, FiEye, FiEyeOff, FiCheck, FiLoader, FiX, FiLink, FiSearch } = FiIcons;
 
 const Settings = () => {
   const { settings, updateSettings, loading } = useSettings();
-  const [showApiKey, setShowApiKey] = useState(false);
+  const [showApiKeys, setShowApiKeys] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [showWebhookPasswords, setShowWebhookPasswords] = useState({});
   const [isSaving, setIsSaving] = useState(false);
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [isTestingWebhooks, setIsTestingWebhooks] = useState({});
+  const [isTestingPerplexity, setIsTestingPerplexity] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState(null);
   const [validationResults, setValidationResults] = useState(null);
   const [webhookValidationResults, setWebhookValidationResults] = useState({});
+  const [perplexityTestResult, setPerplexityTestResult] = useState(null);
 
   const { register, handleSubmit, formState: { errors }, reset, watch, getValues } = useForm();
 
@@ -34,16 +37,61 @@ const Settings = () => {
   const formValues = watch();
   const hasUnsavedChanges = JSON.stringify(formValues) !== JSON.stringify(settings);
 
+  const toggleApiKeyVisibility = (keyType) => {
+    setShowApiKeys(prev => ({ ...prev, [keyType]: !prev[keyType] }));
+  };
+
   const toggleWebhookPasswordVisibility = (webhookType) => {
-    setShowWebhookPasswords(prev => ({
-      ...prev,
-      [webhookType]: !prev[webhookType]
-    }));
+    setShowWebhookPasswords(prev => ({ ...prev, [webhookType]: !prev[webhookType] }));
+  };
+
+  const testPerplexityConnection = async () => {
+    const apiKey = getValues('perplexityPrimary');
+    if (!apiKey) {
+      toast.error('Please enter your Perplexity API key first');
+      return;
+    }
+
+    setIsTestingPerplexity(true);
+    setPerplexityTestResult(null);
+    toast.loading('Testing Perplexity connection...', { id: 'perplexity-test' });
+
+    try {
+      const perplexityService = new PerplexityService(apiKey);
+      // Test with a simple research query using the standard Sonar model
+      const testResult = await perplexityService.generateDeepResearch(
+        'AI and Technology',
+        'Current trends and developments',
+        'Test query for API validation'
+      );
+
+      if (testResult) {
+        setPerplexityTestResult({
+          success: true,
+          message: 'Perplexity Sonar API connection successful!',
+          timestamp: new Date().toISOString()
+        });
+        toast.success('Perplexity Sonar connection successful!', { id: 'perplexity-test' });
+      } else {
+        throw new Error('No response from Perplexity API');
+      }
+    } catch (error) {
+      console.error('Perplexity test error:', error);
+      setPerplexityTestResult({
+        success: false,
+        message: `Perplexity connection failed: ${error.message}`,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      });
+      toast.error(`Perplexity test failed: ${error.message}`, { id: 'perplexity-test' });
+    } finally {
+      setIsTestingPerplexity(false);
+    }
   };
 
   const testWebhookEndpoint = async (webhookType, webhookConfig) => {
     setIsTestingWebhooks(prev => ({ ...prev, [webhookType]: true }));
-    
+
     try {
       console.log(`Testing webhook endpoint: ${webhookType}`);
       console.log('Webhook config:', {
@@ -51,7 +99,7 @@ const Settings = () => {
         username: webhookConfig.username,
         passwordLength: webhookConfig.password ? webhookConfig.password.length : 0
       });
-      
+
       // Test with dummy data
       const testData = {
         parent_id: 123,
@@ -60,11 +108,7 @@ const Settings = () => {
         timestamp: new Date().toISOString()
       };
 
-      console.log('Sending test data:', testData);
-
-      // Create Basic Auth header
       const basicAuth = btoa(`${webhookConfig.username}:${webhookConfig.password}`);
-      console.log('Basic Auth header created for username:', webhookConfig.username);
 
       const response = await fetch(webhookConfig.url, {
         method: 'POST',
@@ -75,23 +119,18 @@ const Settings = () => {
           'User-Agent': 'EbookGen-Webhook-Test/1.0'
         },
         body: JSON.stringify(testData),
-        mode: 'cors', // Explicitly set CORS mode
-        credentials: 'include' // Include credentials
+        mode: 'cors',
+        credentials: 'include'
       });
-
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
       if (response.ok) {
         let responseData;
         try {
           responseData = await response.text();
-          console.log(`Webhook ${webhookType} test successful:`, responseData);
         } catch (textError) {
-          console.log('Could not read response text:', textError);
           responseData = 'Response received but could not read content';
         }
-        
+
         setWebhookValidationResults(prev => ({
           ...prev,
           [webhookType]: {
@@ -106,15 +145,13 @@ const Settings = () => {
 
         toast.success(`${webhookType} webhook test successful! Status: ${response.status}`);
       } else {
-        console.error(`Webhook ${webhookType} test failed:`, response.status, response.statusText);
-        
         let errorData;
         try {
           errorData = await response.text();
         } catch (textError) {
           errorData = 'Could not read error response';
         }
-        
+
         setWebhookValidationResults(prev => ({
           ...prev,
           [webhookType]: {
@@ -131,11 +168,10 @@ const Settings = () => {
       }
     } catch (error) {
       console.error(`Webhook ${webhookType} test error:`, error);
-      
+
       let errorMessage = error.message;
       let errorDetails = {};
 
-      // Provide more specific error messages based on error type
       if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
         errorMessage = 'Network error: Could not connect to webhook endpoint. This could be due to CORS policy, network issues, or the endpoint being unreachable.';
         errorDetails = {
@@ -154,10 +190,8 @@ const Settings = () => {
             'Contact the webhook service administrator'
           ]
         };
-      } else if (error.name === 'AbortError') {
-        errorMessage = 'Request was aborted or timed out';
       }
-      
+
       setWebhookValidationResults(prev => ({
         ...prev,
         [webhookType]: {
@@ -178,26 +212,24 @@ const Settings = () => {
 
   const testAllWebhooks = async () => {
     const webhookConfigs = getValues('webhooks') || settings.webhooks;
-    
+
     toast.loading('Testing all webhook endpoints...', { id: 'webhook-test-all' });
-    
+
     let successCount = 0;
     let totalCount = Object.keys(webhookConfigs).length;
-    
+
     for (const [webhookType, config] of Object.entries(webhookConfigs)) {
       try {
         await testWebhookEndpoint(webhookType, config);
-        // Check if the test was successful
         if (webhookValidationResults[webhookType]?.success) {
           successCount++;
         }
-        // Add delay between tests to avoid overwhelming the server
         await new Promise(resolve => setTimeout(resolve, 1500));
       } catch (error) {
         console.error(`Error testing webhook ${webhookType}:`, error);
       }
     }
-    
+
     if (successCount === totalCount) {
       toast.success(`All ${totalCount} webhook endpoints tested successfully!`, { id: 'webhook-test-all' });
     } else {
@@ -232,59 +264,59 @@ const Settings = () => {
     setIsTestingConnection(true);
     setConnectionStatus(null);
     setValidationResults(null);
-
     toast.loading('Validating WordPress setup...', { id: 'wp-validation' });
 
     try {
-      // Create a WordPress service instance for testing
       const wpService = new WordPressService(
         wordpressUrl,
         wordpressUsername,
         wordpressPassword
       );
 
-      // Test the basic connection first
+      // Test connection
       const connectionResult = await wpService.validateConnection();
-      console.log('WordPress connection test result:', connectionResult);
-
       if (!connectionResult.success) {
         toast.error(`WordPress connection failed: ${connectionResult.error}`, { id: 'wp-validation' });
-        setConnectionStatus({ success: false, connection: connectionResult });
+        setConnectionStatus({
+          success: false,
+          connection: connectionResult
+        });
         return;
       }
 
-      // Check REST API availability
+      // Check REST API
       const apiResult = await wpService.checkRestApiAvailability();
-      console.log('WordPress REST API test result:', apiResult);
-
       if (!apiResult.available) {
         toast.error(`WordPress REST API not available: ${apiResult.error}`, { id: 'wp-validation' });
-        setConnectionStatus({ success: false, connection: connectionResult, api: apiResult });
+        setConnectionStatus({
+          success: false,
+          connection: connectionResult,
+          api: apiResult
+        });
         return;
       }
 
       // Verify credentials
       const credentialsResult = await wpService.verifyCredentials();
-      console.log('WordPress credentials test result:', credentialsResult);
-
       if (!credentialsResult.valid) {
         toast.error(`WordPress credentials invalid: ${credentialsResult.error}`, { id: 'wp-validation' });
-        setConnectionStatus({ success: false, connection: connectionResult, api: apiResult, credentials: credentialsResult });
+        setConnectionStatus({
+          success: false,
+          connection: connectionResult,
+          api: apiResult,
+          credentials: credentialsResult
+        });
         return;
       }
 
-      // Now check for required post types
+      // Validate post types
       const postTypeResults = await wpService.validatePostTypes();
-      console.log('Post types validation results:', postTypeResults);
-
-      // Set full validation results
       setValidationResults(postTypeResults);
 
-      // Determine if all required post types are available
       const allPostTypesAvailable = postTypeResults.book?.available &&
-        postTypeResults.chapter?.available &&
-        postTypeResults.chaptertopic?.available &&
-        postTypeResults.topicsection?.available;
+                                   postTypeResults.chapter?.available &&
+                                   postTypeResults.chaptertopic?.available &&
+                                   postTypeResults.topicsection?.available;
 
       if (allPostTypesAvailable) {
         toast.success('WordPress validation successful! All required post types are available.', { id: 'wp-validation' });
@@ -303,7 +335,10 @@ const Settings = () => {
     } catch (error) {
       console.error('WordPress validation error:', error);
       toast.error(`WordPress validation failed: ${error.message}`, { id: 'wp-validation' });
-      setConnectionStatus({ success: false, error: error.message });
+      setConnectionStatus({
+        success: false,
+        error: error.message
+      });
     } finally {
       setIsTestingConnection(false);
     }
@@ -317,13 +352,14 @@ const Settings = () => {
         return;
       }
 
-      // Simulate API test - in real app, make actual API call
       toast.loading('Testing OpenAI connection...', { id: 'openai-test' });
       setTimeout(() => {
         toast.success('OpenAI connection successful!', { id: 'openai-test' });
       }, 1500);
     } else if (type === 'wordpress') {
       validateWordPressSetup();
+    } else if (type === 'perplexity') {
+      testPerplexityConnection();
     }
   };
 
@@ -343,6 +379,7 @@ const Settings = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
         <p className="text-gray-600 mt-1">Manage your API keys, WordPress integration, and webhook endpoints</p>
+
         {hasUnsavedChanges && (
           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
             <p className="text-sm text-yellow-800">
@@ -381,16 +418,16 @@ const Settings = () => {
               <div className="relative">
                 <input
                   {...register('openaiPrimary', { required: 'Primary API key is required' })}
-                  type={showApiKey ? 'text' : 'password'}
+                  type={showApiKeys.openaiPrimary ? 'text' : 'password'}
                   placeholder="sk-..."
                   className="block w-full pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
                 <button
                   type="button"
                   className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                  onClick={() => setShowApiKey(!showApiKey)}
+                  onClick={() => toggleApiKeyVisibility('openaiPrimary')}
                 >
-                  <SafeIcon icon={showApiKey ? FiEyeOff : FiEye} className="text-gray-400 hover:text-gray-600" />
+                  <SafeIcon icon={showApiKeys.openaiPrimary ? FiEyeOff : FiEye} className="text-gray-400 hover:text-gray-600" />
                 </button>
               </div>
               {errors.openaiPrimary && (
@@ -411,10 +448,17 @@ const Settings = () => {
               <div className="relative">
                 <input
                   {...register('openaiFallback')}
-                  type={showApiKey ? 'text' : 'password'}
+                  type={showApiKeys.openaiFallback ? 'text' : 'password'}
                   placeholder="sk-..."
                   className="block w-full pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  onClick={() => toggleApiKeyVisibility('openaiFallback')}
+                >
+                  <SafeIcon icon={showApiKeys.openaiFallback ? FiEyeOff : FiEye} className="text-gray-400 hover:text-gray-600" />
+                </button>
               </div>
               {settings.openaiFallback && (
                 <p className="mt-1 text-sm text-green-600 flex items-center">
@@ -422,6 +466,119 @@ const Settings = () => {
                   Fallback key configured
                 </p>
               )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Perplexity Settings */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-3">
+              <SafeIcon icon={FiSearch} className="text-xl text-blue-600" />
+              <h2 className="text-xl font-semibold text-gray-900">Perplexity AI Configuration</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => testConnection('perplexity')}
+              disabled={isTestingPerplexity}
+              className="text-sm bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 flex items-center disabled:opacity-50"
+            >
+              {isTestingPerplexity ? (
+                <>
+                  <SafeIcon icon={FiLoader} className="animate-spin mr-1" />
+                  <span>Testing...</span>
+                </>
+              ) : (
+                'Test Connection'
+              )}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Primary API Key
+              </label>
+              <div className="relative">
+                <input
+                  {...register('perplexityPrimary')}
+                  type={showApiKeys.perplexityPrimary ? 'text' : 'password'}
+                  placeholder="pplx-..."
+                  className="block w-full pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  onClick={() => toggleApiKeyVisibility('perplexityPrimary')}
+                >
+                  <SafeIcon icon={showApiKeys.perplexityPrimary ? FiEyeOff : FiEye} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              </div>
+              {settings.perplexityPrimary && (
+                <p className="mt-1 text-sm text-green-600 flex items-center">
+                  <SafeIcon icon={FiCheck} className="mr-1" />
+                  API key configured
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Fallback API Key (Optional)
+              </label>
+              <div className="relative">
+                <input
+                  {...register('perplexityFallback')}
+                  type={showApiKeys.perplexityFallback ? 'text' : 'password'}
+                  placeholder="pplx-..."
+                  className="block w-full pr-10 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <button
+                  type="button"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                  onClick={() => toggleApiKeyVisibility('perplexityFallback')}
+                >
+                  <SafeIcon icon={showApiKeys.perplexityFallback ? FiEyeOff : FiEye} className="text-gray-400 hover:text-gray-600" />
+                </button>
+              </div>
+              {settings.perplexityFallback && (
+                <p className="mt-1 text-sm text-green-600 flex items-center">
+                  <SafeIcon icon={FiCheck} className="mr-1" />
+                  Fallback key configured
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Perplexity Test Results */}
+          {perplexityTestResult && (
+            <div className={`mt-6 p-4 rounded-md ${perplexityTestResult.success ? 'bg-green-50' : 'bg-red-50'}`}>
+              <h4 className={`text-sm font-medium mb-2 ${perplexityTestResult.success ? 'text-green-900' : 'text-red-900'}`}>
+                Perplexity Test Results:
+              </h4>
+              <p className={`text-sm ${perplexityTestResult.success ? 'text-green-800' : 'text-red-800'}`}>
+                {perplexityTestResult.message}
+              </p>
+              {perplexityTestResult.timestamp && (
+                <p className="text-xs mt-1 text-gray-500">
+                  Tested: {new Date(perplexityTestResult.timestamp).toLocaleString()}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-6 p-4 bg-blue-50 rounded-md">
+            <h4 className="text-sm font-medium text-blue-900 mb-2">About Perplexity AI:</h4>
+            <div className="text-sm text-blue-800 space-y-1">
+              <p>• <strong>Sonar Research:</strong> Uses standard "sonar" model for comprehensive market analysis with real-time web data</p>
+              <p>• <strong>Web Context:</strong> Uses standard sonar model to gather fresh context (last 1-3 months) for content generation</p>
+              <p>• <strong>Recency Filter:</strong> Automatically filters for recent information and trends</p>
+              <p>• <strong>Fallback Support:</strong> If primary key fails, fallback key will be used automatically</p>
             </div>
           </div>
         </motion.div>
@@ -450,7 +607,7 @@ const Settings = () => {
                   <span>Validating...</span>
                 </>
               ) : (
-                <span>Validate WordPress Setup</span>
+                'Validate WordPress Setup'
               )}
             </button>
           </div>
@@ -571,25 +728,30 @@ const Settings = () => {
                 {Object.entries(validationResults).map(([type, result]) => (
                   <div key={type} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                     <div className="flex items-center">
-                      <SafeIcon
-                        icon={result.available ? FiCheck : FiX}
-                        className={result.available ? "text-green-600 mr-2" : "text-red-600 mr-2"}
+                      <SafeIcon 
+                        icon={result.available ? FiCheck : FiX} 
+                        className={result.available ? "text-green-600 mr-2" : "text-red-600 mr-2"} 
                       />
                       <span className="font-medium">{type}</span>
                     </div>
                     <div>
-                      <span className={`px-2 py-1 text-xs rounded-full ${result.available ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      <span className={`px-2 py-1 text-xs rounded-full ${
+                        result.available 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
                         {result.available ? 'Available' : 'Not Found'}
                       </span>
                     </div>
                   </div>
                 ))}
               </div>
+
               {Object.values(validationResults).some(result => !result.available) && (
                 <div className="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded-md">
                   <p className="text-xs text-yellow-800 font-medium">Some required post types are missing!</p>
                   <p className="text-xs text-yellow-700 mt-1">
-                    Your WordPress site needs custom post types for Books, Chapters, Chapter Topics, and Topic Sections.
+                    Your WordPress site needs custom post types for Books, Chapters, Chapter Topics, and Topic Sections. 
                     Please install the required plugin or create these custom post types manually.
                   </p>
                 </div>
@@ -646,7 +808,7 @@ const Settings = () => {
                 <h3 className="text-lg font-medium text-gray-900">Book to Chapter Link (L1)</h3>
                 <button
                   type="button"
-                  onClick={() => testWebhookEndpoint('bookToChapter', getValues('webhooks.bookToChapter') || settings.webhooks.bookToChapter)}
+                  onClick={() => testWebhookEndpoint('bookToChapter', getValues('webhooks.bookToChapter') || settings.webhooks?.bookToChapter)}
                   disabled={isTestingWebhooks.bookToChapter}
                   className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center disabled:opacity-50"
                 >
@@ -660,7 +822,7 @@ const Settings = () => {
                   )}
                 </button>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
@@ -743,7 +905,7 @@ const Settings = () => {
                 <h3 className="text-lg font-medium text-gray-900">Chapter to Topic Link (L2)</h3>
                 <button
                   type="button"
-                  onClick={() => testWebhookEndpoint('chapterToTopic', getValues('webhooks.chapterToTopic') || settings.webhooks.chapterToTopic)}
+                  onClick={() => testWebhookEndpoint('chapterToTopic', getValues('webhooks.chapterToTopic') || settings.webhooks?.chapterToTopic)}
                   disabled={isTestingWebhooks.chapterToTopic}
                   className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center disabled:opacity-50"
                 >
@@ -757,7 +919,7 @@ const Settings = () => {
                   )}
                 </button>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
@@ -809,27 +971,6 @@ const Settings = () => {
                       Tested: {new Date(webhookValidationResults.chapterToTopic.timestamp).toLocaleString()}
                     </p>
                   )}
-                  {webhookValidationResults.chapterToTopic.errorDetails && (
-                    <details className="mt-2">
-                      <summary className="text-xs cursor-pointer text-gray-600 hover:text-gray-800">
-                        Show troubleshooting suggestions
-                      </summary>
-                      <div className="mt-2 text-xs text-gray-700">
-                        <p className="font-medium">Possible causes:</p>
-                        <ul className="list-disc list-inside ml-2">
-                          {webhookValidationResults.chapterToTopic.errorDetails.possibleCauses?.map((cause, index) => (
-                            <li key={index}>{cause}</li>
-                          ))}
-                        </ul>
-                        <p className="font-medium mt-2">Suggestions:</p>
-                        <ul className="list-disc list-inside ml-2">
-                          {webhookValidationResults.chapterToTopic.errorDetails.suggestions?.map((suggestion, index) => (
-                            <li key={index}>{suggestion}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </details>
-                  )}
                 </div>
               )}
             </div>
@@ -840,7 +981,7 @@ const Settings = () => {
                 <h3 className="text-lg font-medium text-gray-900">Topic to Section Link (L3)</h3>
                 <button
                   type="button"
-                  onClick={() => testWebhookEndpoint('topicToSection', getValues('webhooks.topicToSection') || settings.webhooks.topicToSection)}
+                  onClick={() => testWebhookEndpoint('topicToSection', getValues('webhooks.topicToSection') || settings.webhooks?.topicToSection)}
                   disabled={isTestingWebhooks.topicToSection}
                   className="text-sm text-primary-600 hover:text-primary-700 font-medium flex items-center disabled:opacity-50"
                 >
@@ -854,7 +995,7 @@ const Settings = () => {
                   )}
                 </button>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Webhook URL</label>
@@ -906,27 +1047,6 @@ const Settings = () => {
                       Tested: {new Date(webhookValidationResults.topicToSection.timestamp).toLocaleString()}
                     </p>
                   )}
-                  {webhookValidationResults.topicToSection.errorDetails && (
-                    <details className="mt-2">
-                      <summary className="text-xs cursor-pointer text-gray-600 hover:text-gray-800">
-                        Show troubleshooting suggestions
-                      </summary>
-                      <div className="mt-2 text-xs text-gray-700">
-                        <p className="font-medium">Possible causes:</p>
-                        <ul className="list-disc list-inside ml-2">
-                          {webhookValidationResults.topicToSection.errorDetails.possibleCauses?.map((cause, index) => (
-                            <li key={index}>{cause}</li>
-                          ))}
-                        </ul>
-                        <p className="font-medium mt-2">Suggestions:</p>
-                        <ul className="list-disc list-inside ml-2">
-                          {webhookValidationResults.topicToSection.errorDetails.suggestions?.map((suggestion, index) => (
-                            <li key={index}>{suggestion}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </details>
-                  )}
                 </div>
               )}
             </div>
@@ -935,8 +1055,7 @@ const Settings = () => {
           <div className="mt-6 p-4 bg-blue-50 rounded-md">
             <h4 className="text-sm font-medium text-blue-900 mb-2">About Webhooks:</h4>
             <p className="text-sm text-blue-800">
-              These webhooks are used to link content hierarchically in WordPress. They establish parent-child relationships between Books → Chapters → Topics → Sections.
-              Test each webhook to ensure they're working correctly before publishing content.
+              These webhooks are used to link content hierarchically in WordPress. They establish parent-child relationships between Books → Chapters → Topics → Sections. Test each webhook to ensure they're working correctly before publishing content.
             </p>
             <div className="mt-2 text-xs text-blue-700">
               <p><strong>Authentication:</strong> Uses Basic Authentication with username "flowmattic" and the provided password.</p>
@@ -993,6 +1112,18 @@ const Settings = () => {
               <p className="font-medium text-gray-700">OpenAI Fallback Key:</p>
               <p className={settings.openaiFallback ? 'text-green-600' : 'text-gray-500'}>
                 {settings.openaiFallback ? 'Configured' : 'Not configured'}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-gray-700">Perplexity Primary Key:</p>
+              <p className={settings.perplexityPrimary ? 'text-green-600' : 'text-gray-500'}>
+                {settings.perplexityPrimary ? 'Configured' : 'Not configured'}
+              </p>
+            </div>
+            <div>
+              <p className="font-medium text-gray-700">Perplexity Fallback Key:</p>
+              <p className={settings.perplexityFallback ? 'text-green-600' : 'text-gray-500'}>
+                {settings.perplexityFallback ? 'Configured' : 'Not configured'}
               </p>
             </div>
             <div>

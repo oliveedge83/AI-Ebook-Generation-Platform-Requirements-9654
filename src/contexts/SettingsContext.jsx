@@ -12,12 +12,39 @@ export const useSettings = () => {
 
 export const SettingsProvider = ({ children }) => {
   const [settings, setSettings] = useState({
+    // OpenAI Settings
     openaiPrimary: '',
     openaiFallback: '',
+    
+    // Perplexity Settings
+    perplexityPrimary: '',
+    perplexityFallback: '',
+    
+    // WordPress Settings
     wordpressUrl: '',
     wordpressUsername: '',
-    wordpressPassword: ''
+    wordpressPassword: '',
+    
+    // Webhook Settings
+    webhooks: {
+      bookToChapter: {
+        url: '',
+        username: '',
+        password: ''
+      },
+      chapterToTopic: {
+        url: '',
+        username: '',
+        password: ''
+      },
+      topicToSection: {
+        url: '',
+        username: '',
+        password: ''
+      }
+    }
   });
+  
   const [loading, setLoading] = useState(true);
 
   // Load settings from localStorage on mount
@@ -26,7 +53,10 @@ export const SettingsProvider = ({ children }) => {
       const savedSettings = localStorage.getItem('userCredentials');
       if (savedSettings) {
         const parsedSettings = JSON.parse(savedSettings);
-        setSettings(parsedSettings);
+        setSettings(prevSettings => ({
+          ...prevSettings,
+          ...parsedSettings
+        }));
       }
     } catch (error) {
       console.error('Error loading settings:', error);

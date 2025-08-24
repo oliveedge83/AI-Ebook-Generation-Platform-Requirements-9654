@@ -9,50 +9,100 @@ import GenerationProgress from '../components/GenerationProgress';
 import SafeIcon from '../common/SafeIcon';
 import * as FiIcons from 'react-icons/fi';
 
-const { FiBookOpen, FiTarget, FiArrowRight, FiAlertCircle, FiSettings } = FiIcons;
+const { FiBookOpen, FiTarget, FiArrowRight, FiAlertCircle, FiSettings, FiSearch, FiCpu } = FiIcons;
 
 const CreateEbook = () => {
   const navigate = useNavigate();
-  const { createProject, generateOutline, isGenerating, generationProgress } = useEbook();
+  const { createProject, generateOutline, isGenerating, generationProgress, updateProject } = useEbook();
   const { settings } = useSettings();
-  const { register, handleSubmit, formState: { errors } } = useForm();
+  const { register, handleSubmit, formState: { errors }, watch } = useForm({
+    defaultValues: {
+      researchLLM: 'openai',
+      contentGenerationLLM: 'openai'
+    }
+  });
 
-  // Check if required settings are configured
-  const isConfigured = settings.openaiPrimary && settings.wordpressUrl && settings.wordpressUsername && settings.wordpressPassword;
+  // Watch form values to check configuration status
+  const researchLLM = watch('researchLLM');
+  const contentGenerationLLM = watch('contentGenerationLLM');
+
+  // Check configuration based on selected methods
+  const isResearchConfigured = (researchLLM === 'openai' && settings.openaiPrimary) || 
+                                (researchLLM === 'perplexity' && settings.perplexityPrimary);
+
+  const isContentGenerationConfigured = (contentGenerationLLM === 'openai' && settings.openaiPrimary) || 
+                                        (contentGenerationLLM === 'perplexity' && settings.perplexityPrimary);
+
+  const isWordPressConfigured = settings.wordpressUrl && settings.wordpressUsername && settings.wordpressPassword;
+
+  const isFullyConfigured = isResearchConfigured && isContentGenerationConfigured && isWordPressConfigured;
 
   const onSubmit = async (data) => {
-    if (!isConfigured) {
-      toast.error('Please configure your API keys and WordPress settings first');
+    if (!isFullyConfigured) {
+      toast.error('Please configure the required API keys and WordPress settings first');
       navigate('/settings');
       return;
     }
 
     try {
-      // Create the project
+      // ✅ FIXED: Create project first, then generate outline and update project
+      console.log('🚀 Starting ebook creation process...');
+      console.log('📋 Project data:', {
+        niche: data.niche,
+        maxChapters: data.maxChapters,
+        researchMethod: data.researchLLM,
+        contentMethod: data.contentGenerationLLM
+      });
+
+      // Create the project with form data
       const project = createProject(data);
-      
-      // Generate outline using AI
+      console.log('✅ Project created with ID:', project.id);
+
+      // Generate outline using selected research method
+      console.log('🔍 Starting outline generation...');
       const outline = await generateOutline(data);
-      
-      // Update project with generated outline
-      const updatedProject = {
-        ...project,
+      console.log('✅ Outline generated successfully');
+      console.log('📊 Outline structure:', {
+        title: outline.title,
+        chaptersCount: outline.chapters?.length || 0,
+        hasResearchBrief: !!outline.researchBrief,
+        researchMethod: outline.researchMethod,
+        contentMethod: outline.contentGenerationMethod
+      });
+
+      // ✅ FIXED: Update the project with the generated outline
+      updateProject(project.id, {
         outline,
         status: 'review',
         title: outline.title
-      };
-      
-      // Update the project in context
-      project.outline = outline;
-      project.status = 'review';
-      project.title = outline.title;
-      
-      toast.success('AI-powered ebook outline generated successfully!');
+      });
+
+      console.log('✅ Project updated with outline');
+
+      toast.success(`AI-powered ebook outline generated successfully using ${data.researchLLM === 'perplexity' ? 'Perplexity Sonar Research' : 'OpenAI'}!`);
       navigate(`/review/${project.id}`);
+
     } catch (error) {
-      console.error('Generation error:', error);
+      console.error('❌ Generation error:', error);
       toast.error(error.message || 'Failed to generate ebook outline');
     }
+  };
+
+  const getConfigurationStatus = (method, type) => {
+    if (type === 'research') {
+      if (method === 'openai') {
+        return settings.openaiPrimary ? 'configured' : 'missing';
+      } else if (method === 'perplexity') {
+        return settings.perplexityPrimary ? 'configured' : 'missing';
+      }
+    } else if (type === 'content') {
+      if (method === 'openai') {
+        return settings.openaiPrimary ? 'configured' : 'missing';
+      } else if (method === 'perplexity') {
+        return settings.perplexityPrimary ? 'configured' : 'missing';
+      }
+    }
+    return 'missing';
   };
 
   return (
@@ -64,7 +114,7 @@ const CreateEbook = () => {
         </div>
 
         {/* Configuration Warning */}
-        {!isConfigured && (
+        {!isFullyConfigured && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -75,8 +125,13 @@ const CreateEbook = () => {
               <div className="flex-1">
                 <h3 className="text-sm font-medium text-yellow-800">Configuration Required</h3>
                 <p className="text-sm text-yellow-700 mt-1">
-                  Please configure your OpenAI API keys and WordPress settings before creating an ebook.
+                  Please configure the required API keys and WordPress settings based on your selected methods.
                 </p>
+                <div className="mt-2 text-xs text-yellow-700">
+                  <p>• Research Method: {researchLLM === 'openai' ? 'OpenAI' : 'Perplexity Sonar Research'} - {isResearchConfigured ? '✅ Configured' : '❌ Not Configured'}</p>
+                  <p>• Content Generation: {contentGenerationLLM === 'openai' ? 'OpenAI Only' : 'Perplexity + OpenAI'} - {isContentGenerationConfigured ? '✅ Configured' : '❌ Not Configured'}</p>
+                  <p>• WordPress: {isWordPressConfigured ? '✅ Configured' : '❌ Not Configured'}</p>
+                </div>
               </div>
               <button
                 onClick={() => navigate('/settings')}
@@ -90,10 +145,111 @@ const CreateEbook = () => {
         )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+          {/* AI Method Selection */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
+          >
+            <div className="flex items-center space-x-3 mb-6">
+              <SafeIcon icon={FiCpu} className="text-xl text-primary-600" />
+              <h2 className="text-xl font-semibold text-gray-900">AI Method Selection</h2>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Research LLM Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Research Method *
+                </label>
+                <select
+                  {...register('researchLLM', { required: 'Please select a research method' })}
+                  className="block w-full py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="openai">OpenAI (Standard Research)</option>
+                  <option value="perplexity">Perplexity Sonar (Web + Real-time)</option>
+                </select>
+                {errors.researchLLM && (
+                  <p className="mt-1 text-sm text-red-600">{errors.researchLLM.message}</p>
+                )}
+                <div className="mt-2 text-xs text-gray-600">
+                  {researchLLM === 'perplexity' ? (
+                    <div className="flex items-center space-x-2">
+                      <SafeIcon icon={FiSearch} className="text-green-600" />
+                      <span>Uses real-time web research with current trends (last 1-3 months)</span>
+                    </div>
+                  ) : (
+                    <span>Uses OpenAI's knowledge base for research</span>
+                  )}
+                </div>
+                <div className="mt-1">
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    getConfigurationStatus(researchLLM, 'research') === 'configured' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {getConfigurationStatus(researchLLM, 'research') === 'configured' 
+                      ? '✅ API Key Configured' 
+                      : '❌ API Key Required'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Content Generation LLM Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Content Generation Method *
+                </label>
+                <select
+                  {...register('contentGenerationLLM', { required: 'Please select a content generation method' })}
+                  className="block w-full py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                >
+                  <option value="openai">OpenAI Only</option>
+                  <option value="perplexity">Perplexity + OpenAI (Web Context + Generation)</option>
+                </select>
+                {errors.contentGenerationLLM && (
+                  <p className="mt-1 text-sm text-red-600">{errors.contentGenerationLLM.message}</p>
+                )}
+                <div className="mt-2 text-xs text-gray-600">
+                  {contentGenerationLLM === 'perplexity' ? (
+                    <div className="flex items-center space-x-2">
+                      <SafeIcon icon={FiSearch} className="text-blue-600" />
+                      <span>Perplexity provides fresh web context, OpenAI generates final content</span>
+                    </div>
+                  ) : (
+                    <span>Uses OpenAI for direct content generation</span>
+                  )}
+                </div>
+                <div className="mt-1">
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    getConfigurationStatus(contentGenerationLLM, 'content') === 'configured' 
+                      ? 'bg-green-100 text-green-800' 
+                      : 'bg-red-100 text-red-800'
+                  }`}>
+                    {getConfigurationStatus(contentGenerationLLM, 'content') === 'configured' 
+                      ? '✅ API Key Configured' 
+                      : '❌ API Key Required'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Method Explanation */}
+            <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <h4 className="text-sm font-medium text-blue-900 mb-2">How These Methods Work Together:</h4>
+              <div className="text-sm text-blue-800 space-y-1">
+                <p><strong>Research Phase:</strong> {researchLLM === 'perplexity' ? 'Perplexity conducts real-time web research with current trends and data' : 'OpenAI uses its knowledge base for research'}</p>
+                <p><strong>Content Generation:</strong> {contentGenerationLLM === 'perplexity' ? 'Perplexity gathers fresh web context, then OpenAI generates the final content using that context' : 'OpenAI handles all content generation directly'}</p>
+                <p><strong>Knowledge Libraries:</strong> RAG (file search) works with both methods when libraries are attached</p>
+              </div>
+            </div>
+          </motion.div>
+
           {/* Basic Information */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
           >
             <div className="flex items-center space-x-3 mb-6">
@@ -142,7 +298,7 @@ const CreateEbook = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
+            transition={{ delay: 0.2 }}
             className="bg-white rounded-lg shadow-sm border border-gray-200 p-6"
           >
             <div className="flex items-center space-x-3 mb-6">
@@ -184,19 +340,20 @@ const CreateEbook = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
+            transition={{ delay: 0.25 }}
             className="bg-blue-50 border border-blue-200 rounded-lg p-6"
           >
             <h3 className="text-lg font-semibold text-blue-900 mb-3">AI-Powered Generation Process</h3>
             <div className="space-y-2 text-sm text-blue-800">
-              <p>• <strong>Market Research:</strong> AI analyzes your niche to identify key audience needs and trends</p>
+              <p>• <strong>Market Research:</strong> {researchLLM === 'perplexity' ? 'Real-time web research with current trends and data (last 1-3 months)' : 'AI analyzes your niche using knowledge base'}</p>
               <p>• <strong>Content Structure:</strong> Creates a logical, scaffolded learning progression</p>
               <p>• <strong>Chapter Outline:</strong> Generates detailed chapters with topics and lessons</p>
+              <p>• <strong>Content Generation:</strong> {contentGenerationLLM === 'perplexity' ? 'Fresh web context + AI-powered content creation' : 'Direct AI content generation'}</p>
               <p>• <strong>Professional Quality:</strong> Uses bestselling author expertise and content strategy</p>
             </div>
             <div className="mt-4 p-3 bg-blue-100 rounded-md">
               <p className="text-xs text-blue-700">
-                <strong>Note:</strong> Generation typically takes 2-3 minutes as our AI conducts thorough research and creates comprehensive content.
+                <strong>Note:</strong> Generation typically takes 2-4 minutes. {researchLLM === 'perplexity' || contentGenerationLLM === 'perplexity' ? 'Web research methods may take slightly longer for comprehensive results.' : 'Standard AI generation for faster results.'}
               </p>
             </div>
           </motion.div>
@@ -205,14 +362,14 @@ const CreateEbook = () => {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
+            transition={{ delay: 0.3 }}
             className="flex justify-end"
           >
             <motion.button
-              whileHover={{ scale: isConfigured ? 1.02 : 1 }}
-              whileTap={{ scale: isConfigured ? 0.98 : 1 }}
+              whileHover={{ scale: isFullyConfigured ? 1.02 : 1 }}
+              whileTap={{ scale: isFullyConfigured ? 0.98 : 1 }}
               type="submit"
-              disabled={isGenerating || !isConfigured}
+              disabled={isGenerating || !isFullyConfigured}
               className="flex items-center space-x-2 bg-primary-600 text-white px-8 py-3 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isGenerating ? (

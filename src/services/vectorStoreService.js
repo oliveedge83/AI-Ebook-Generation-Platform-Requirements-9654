@@ -6,7 +6,6 @@ class VectorStoreService {
 
   async makeRequest(endpoint, options = {}) {
     const { method = 'GET', data, headers = {} } = options;
-    
     const defaultHeaders = {
       'Authorization': `Bearer ${this.apiKey}`,
       'OpenAI-Beta': 'assistants=v2',
@@ -36,7 +35,7 @@ class VectorStoreService {
         const error = await response.json();
         throw new Error(error.error?.message || `API error: ${response.status}`);
       }
-
+      
       return await response.json();
     } catch (error) {
       console.error(`Vector Store API request failed: ${error.message}`);
@@ -139,69 +138,35 @@ class VectorStoreService {
   async generateContentWithRAG(vectorStoreId, systemPrompt, userPrompt, maxTokens = 2400) {
     console.log(`Generating RAG content using vector store: ${vectorStoreId}`);
     try {
-      const data = {
+      const chatData = {
         model: "gpt-4o-mini",
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
         tools: [
           {
             type: "file_search",
-            vector_store_ids: [vectorStoreId],
-            max_num_results: 3
-          }
-        ],
-        input: [
-          {
-            role: "system",
-            content: systemPrompt
-          },
-          {
-            role: "user",
-            content: userPrompt
-          }
-        ],
-        max_output_tokens: maxTokens
-      };
-
-      // Note: The endpoint might be '/chat/completions' instead of '/responses'
-      // We'll try both endpoints for compatibility
-      let response;
-      try {
-        response = await this.makeRequest('/responses', {
-          method: 'POST',
-          data
-        });
-      } catch (error) {
-        console.log('Trying alternative endpoint for RAG generation...');
-        // Fallback to chat completions format
-        const chatData = {
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: systemPrompt
-            },
-            {
-              role: "user",
-              content: userPrompt
-            }
-          ],
-          tools: [
-            {
-              type: "file_search",
-              vector_store_ids: [vectorStoreId],
+            file_search: {
               max_num_results: 3
             }
-          ],
-          max_tokens: maxTokens
-        };
+          }
+        ],
+        tool_resources: {
+          file_search: {
+            vector_store_ids: [vectorStoreId]
+          }
+        },
+        max_tokens: maxTokens
+      };
 
-        response = await this.makeRequest('/chat/completions', {
-          method: 'POST',
-          data: chatData
-        });
-      }
+      const response = await this.makeRequest('/chat/completions', {
+        method: 'POST',
+        data: chatData
+      });
 
       console.log('RAG content generated successfully');
-      return response.choices?.[0]?.message?.content || response.output || 'Content generation failed';
+      return response.choices?.[0]?.message?.content || 'Content generation failed';
     } catch (error) {
       console.error('Error generating RAG content:', error);
       throw new Error(`Failed to generate RAG content: ${error.message}`);

@@ -13,10 +13,11 @@ class OpenAIService {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
-          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? { 'OpenAI-Beta': 'assistants=v2' } : {})
+          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? 
+            { 'OpenAI-Beta': 'assistants=v2' } : {})
         },
         body: JSON.stringify(data),
-        signal: signal // Pass abort signal
+        signal: signal
       });
 
       if (!response.ok) {
@@ -40,6 +41,7 @@ class OpenAIService {
 
   async generateMarketResearch(ebookNiche, mustHaveAspects, otherDesignConsiderations, signal = null) {
     console.log(`Generating market research for niche: ${ebookNiche}`);
+    
     const prompt = `Act as a Senior Content Strategist and bestselling non-fiction ghostwriter. I am commissioning an authoritative ebook in the professional niche of: ${ebookNiche}.
 
 Some of the initial considerations for the ebook as per the commissioning editor are:
@@ -55,7 +57,6 @@ The final output MUST be a single text paragraph string titled "ebook_research_b
 Generate the "ebook_research_brief" paragraph now. The output should be a single, continuous text string that can be passed to the next node.`;
 
     try {
-      // Try with gpt-4o-mini first
       const response = await this.makeRequest('/chat/completions', {
         model: 'gpt-4o-mini',
         messages: [
@@ -68,7 +69,6 @@ Generate the "ebook_research_brief" paragraph now. The output should be a single
       return response.choices[0].message.content;
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -88,6 +88,7 @@ Generate the "ebook_research_brief" paragraph now. The output should be a single
 
   async generatePrefaceAndIntroduction(researchBrief, mustHaveAspects, otherDesignConsiderations, signal = null) {
     console.log('Generating preface and introduction');
+    
     const prompt = `Act as an expert developmental editor and bestselling non-fiction author. Your task is to write the ebook's preface and Introduction.
 
 CONTEXT:
@@ -105,7 +106,6 @@ Format your response as a JSON object with two keys:
 {"preface": "<html content for preface>", "introduction": "<html content for introduction>"}`;
 
     try {
-      // Try with gpt-4o-mini first
       const response = await this.makeRequest('/chat/completions', {
         model: 'gpt-4o-mini',
         messages: [
@@ -119,7 +119,6 @@ Format your response as a JSON object with two keys:
         return JSON.parse(response.choices[0].message.content);
       } catch (parseError) {
         console.log('Error parsing JSON response, using content directly:', parseError.message);
-        // Fallback if JSON parsing fails
         const content = response.choices[0].message.content;
         return {
           preface: content.includes('Preface') ? content.split('Introduction')[0] : content,
@@ -128,7 +127,6 @@ Format your response as a JSON object with two keys:
       }
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -156,6 +154,7 @@ Format your response as a JSON object with two keys:
 
   async generateChapterOutline(researchBrief, mustHaveAspects, maxChapters, otherDesignConsiderations, signal = null) {
     console.log(`Generating chapter outline with max chapters: ${maxChapters}`);
+    
     const prompt = `Act as an expert developmental editor and curriculum design specialist. Your task is to apply curriculum design principles to outline a practical, high-impact ebook by structuring the ebook's main chapters as a sequence of "courses".
 
 CONTEXT:
@@ -178,7 +177,6 @@ Your output MUST be an array of JSON objects. Each object represents a chapter a
 Return ONLY the JSON array, no other text.`;
 
     try {
-      // Try with gpt-4o-mini first
       const response = await this.makeRequest('/chat/completions', {
         model: 'gpt-4o-mini',
         messages: [
@@ -190,7 +188,6 @@ Return ONLY the JSON array, no other text.`;
 
       try {
         const content = response.choices[0].message.content;
-        // Extract JSON array if wrapped in text
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         return jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
       } catch (parseError) {
@@ -199,7 +196,6 @@ Return ONLY the JSON array, no other text.`;
       }
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -225,6 +221,7 @@ Return ONLY the JSON array, no other text.`;
 
   async generateChapterTopics(researchBrief, chapterTitle, chapterDescription, mustHaveAspects, signal = null) {
     console.log(`Generating topics for chapter: ${chapterTitle}`);
+    
     const prompt = `As an expert ebook architect, you are designing a single chapter of an authoritative professional ebook. Your task is to create the complete, detailed content outline for this single chapter.
 
 CONTEXT:
@@ -232,7 +229,6 @@ ${researchBrief}
 
 Current Chapter: ${chapterTitle}
 Chapter Description: ${chapterDescription}
-
 Must-Have aspects: ${mustHaveAspects}
 
 TASK:
@@ -248,7 +244,6 @@ Your output MUST be a single raw array of JSON objects. Each object in the array
 Return ONLY the JSON array, no other text.`;
 
     try {
-      // Try with gpt-4o-mini first
       const response = await this.makeRequest('/chat/completions', {
         model: 'gpt-4o-mini',
         messages: [
@@ -260,7 +255,6 @@ Return ONLY the JSON array, no other text.`;
 
       try {
         const content = response.choices[0].message.content;
-        // Extract JSON array if wrapped in text
         const jsonMatch = content.match(/\[[\s\S]*\]/);
         return jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(content);
       } catch (parseError) {
@@ -269,7 +263,6 @@ Return ONLY the JSON array, no other text.`;
       }
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -293,9 +286,9 @@ Return ONLY the JSON array, no other text.`;
     }
   }
 
-  // New methods for content generation during publishing workflow
   async generateTopicIntroduction(researchBrief, chapterTitle, chapterDescription, topicTitle, topicObjective, lessons, signal = null) {
     console.log(`Generating topic introduction for: ${topicTitle} using gpt-4o-mini`);
+    
     const lessonsJson = JSON.stringify(lessons);
     const prompt = `Write the introductory and activity-focused content for a single topic.
 
@@ -303,7 +296,6 @@ CONTEXT:
 Overall context: ${researchBrief}
 Course title: ${chapterTitle}
 Course description: ${chapterDescription}
-
 Current Topic: ${topicTitle}
 Learning objective: ${topicObjective}
 Lessons in this Topic: ${lessonsJson}
@@ -313,20 +305,19 @@ Generate the topic introduction in plain text format:
 "topicIntroduction": A compelling introductory paragraph (150-200 words) for the topic.`;
 
     try {
-      // Use gpt-4o-mini instead of gpt-4.1-mini (which doesn't exist)
       const response = await this.makeRequest('/chat/completions', {
         model: 'gpt-4o-mini',
         messages: [
           { role: 'user', content: prompt }
         ],
         max_tokens: 1000,
-        temperature: 0.7
+        temperature: 0.5
       }, signal);
 
       try {
         const content = response.choices[0].message.content;
         console.log('Topic introduction generated successfully');
-        // Try to extract as JSON if possible
+        
         if (content.includes('"topicIntroduction"')) {
           const jsonMatch = content.match(/"topicIntroduction":\s*"([^"]+)"/);
           return jsonMatch ? jsonMatch[1] : content;
@@ -338,7 +329,6 @@ Generate the topic introduction in plain text format:
       }
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -346,7 +336,7 @@ Generate the topic introduction in plain text format:
             { role: 'user', content: prompt }
           ],
           max_tokens: 1000,
-          temperature: 0.7
+          temperature: 0.5
         }, signal);
 
         const content = fallbackResponse.choices[0].message.content;
@@ -370,11 +360,17 @@ Generate the topic introduction in plain text format:
     topicGenerationApproach = 'Practical and actionable',
     userAddedContext = '',
     vectorStoreId = null,
+    webSearchContext = null,
     signal = null
   ) {
-    console.log(`Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}`);
+    console.log(`Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${webSearchContext ? ' with web context' : ''}`);
 
-    const systemPrompt = `Focus on actionable strategies that readers can implement immediately. Address emotional triggers. Emphasize benefits. Include common mistakes and how to avoid them. Use case studies or examples from real businesses to make content relatable. Provide templates and actionable checklists if applicable. Keep the text as action focused as possible. Quote recent research on this topic if any. Keep the tone motivating and supportive. Sound like Malcolm Gladwell or Daniel Pink for this ebook.
+    // Enhanced system prompt that includes web research context
+    const systemPrompt = `Act as an expert ebook writer.
+
+${fullContext}
+
+Focus on actionable strategies that readers can implement immediately. Address emotional triggers. Emphasize benefits. Include common mistakes and how to avoid them. Use case studies or examples from real businesses to make content relatable. Provide templates and actionable checklists if applicable. Keep the text as action focused as possible. Quote recent research on this topic if any. Keep the tone motivating and supportive. Sound like Malcolm Gladwell or Daniel Pink for this ebook.
 
 The full content for this section will include:
 readingContent: The main text content (~1000-1500 words) in HTML format.
@@ -385,17 +381,22 @@ Context: ${fullContext}
 Instruction Method suggested by creator: ${instructionMethod}
 Topic content generation approach: ${topicGenerationApproach}${userAddedContext ? `
 User's Additional Context: ${userAddedContext}` : ''}${vectorStoreId ? `
-
 Use the attached files from vector store library as reference material and use it as relevant.` : ''}`;
 
-    const userPrompt = `TASK: Develop a practical, step-by-step section on section title ${lessonTitle} with section description as ${lessonDescription} for the target audience from context. Generate the readingContent: The main text content (~1500-2000 words). Generate in HTML format.`;
+    const userPrompt = `TASK: Develop a practical, step-by-step section on section title ${lessonTitle} with section description as ${lessonDescription} for the target audience from context.${webSearchContext ? `
+
+Given the objective based on ebook research passed above and the web_search context: ${webSearchContext}` : ''}
+
+Generate the readingContent: The main text content (~1500-2000 words). Generate in HTML format.
+
+Objectives: Provide practical, actionable content that readers can implement immediately.`;
 
     try {
       let response;
       
       if (vectorStoreId) {
-        console.log(`Using RAG with vector store: ${vectorStoreId}`);
-        // Use RAG with vector store
+        console.log(`Using RAG with vector store: ${vectorStoreId}${webSearchContext ? ' and web context' : ''}`);
+        // Use RAG with vector store and web context
         const VectorStoreService = (await import('./vectorStoreService.js')).default;
         const vectorStoreService = new VectorStoreService(this.apiKey);
         
@@ -403,13 +404,13 @@ Use the attached files from vector store library as reference material and use i
           vectorStoreId,
           systemPrompt,
           userPrompt,
-          2400
+          1800
         );
         
         console.log('RAG section content generated successfully');
         return response;
       } else {
-        // Use standard chat completion
+        // Use standard chat completion with web context
         const response = await this.makeRequest('/chat/completions', {
           model: 'gpt-4o-mini',
           messages: [
@@ -417,7 +418,7 @@ Use the attached files from vector store library as reference material and use i
             { role: 'user', content: userPrompt }
           ],
           max_tokens: 3000,
-          temperature: 0.7
+          temperature: 0.5
         }, signal);
 
         console.log('Standard section content generated successfully');
@@ -425,7 +426,6 @@ Use the attached files from vector store library as reference material and use i
       }
     } catch (error) {
       console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
-      // Fallback to gpt-3.5-turbo if gpt-4o-mini fails
       try {
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
@@ -434,7 +434,7 @@ Use the attached files from vector store library as reference material and use i
             { role: 'user', content: userPrompt }
           ],
           max_tokens: 3000,
-          temperature: 0.7
+          temperature: 0.5
         }, signal);
 
         return fallbackResponse.choices[0].message.content;
