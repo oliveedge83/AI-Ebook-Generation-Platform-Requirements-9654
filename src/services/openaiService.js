@@ -6,6 +6,7 @@ class OpenAIService {
   }
 
   async makeRequest(endpoint, data, signal = null) {
+    // VibeCoding: Log now shows the dynamically selected model from the request data
     console.log(`Making OpenAI request to ${endpoint} with model: ${data.model}`);
     
     try {
@@ -14,7 +15,7 @@ class OpenAIService {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
-          // ✅ FIXED: Add OpenAI-Beta header when using file_search
+          // Add OpenAI-Beta header when using file_search
           ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? {
             'OpenAI-Beta': 'assistants=v2'
           } : {})
@@ -30,6 +31,7 @@ class OpenAIService {
       }
 
       const result = await response.json();
+      // VibeCoding: Success log now shows the actual model used in the request
       console.log(`OpenAI request successful with model: ${data.model}`);
       return result;
     } catch (error) {
@@ -42,9 +44,11 @@ class OpenAIService {
     }
   }
 
-  async generateMarketResearch(ebookNiche, mustHaveAspects, otherDesignConsiderations, signal = null) {
-    console.log(`Generating market research for niche: ${ebookNiche}`);
-    
+  // VibeCoding: FIXED - generateMarketResearch now uses FIXED defaults, ignoring gptOptions for research
+  async generateMarketResearch(ebookNiche, mustHaveAspects, otherDesignConsiderations, gptOptions = {}, signal = null) {
+    // VibeCoding: Log shows fixed defaults for research
+    console.log(`Generating market research for niche: ${ebookNiche} using FIXED defaults (model: gpt-4.1-mini-2025-04-14, tokens: 2000)`);
+
     const prompt = `Act as a Senior Content Strategist and bestselling non-fiction ghostwriter. I am commissioning an authoritative ebook in the professional niche of: ${ebookNiche}.
 
 Some of the initial considerations for the ebook as per the commissioning editor are:
@@ -55,32 +59,37 @@ Additional content and structural considerations: ${otherDesignConsiderations ||
 
 Your mission is to conduct a deep market and audience analysis to uncover the most potent professional drivers, emotional triggers, and desired outcomes of the target readership for this ebook. This deep insight will inform the ebook's structure, tone, and content to ensure it is highly practical, resonant, and achieves maximum impact for the reader.
 
-The final output MUST be a single text paragraph string titled "ebook_research_brief".
-
-The ebook_research_brief will include: "ebookTitle", "readerTransformationPillars", "idealReaderProfile", "marketRelevance", "hardHittingPainPoints", "keyEmotionalTriggers", "tangibleReaderResults", "assumedReaderKnowledge", and "recommendedContentStructure".
+The final output MUST be a single text paragraph string titled "ebook_research_brief". The ebook_research_brief will include: "ebookTitle", "readerTransformationPillars", "idealReaderProfile", "marketRelevance", "hardHittingPainPoints", "keyEmotionalTriggers", "tangibleReaderResults", "assumedReaderKnowledge", and "recommendedContentStructure".
 
 Generate the "ebook_research_brief" paragraph now. The output should be a single, continuous text string that can be passed to the next node.`;
 
     try {
+      // VibeCoding: FIXED - Use fixed defaults for research consistency, ignore gptOptions
       const response = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // FIXED: Always use gpt-4.1-mini-2025-04-14 for research
+        model: 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
+        // FIXED: Always use 2000 tokens for research
         max_tokens: 2000,
+        // FIXED: Always use 0.7 temperature for research
         temperature: 0.7
       }, signal);
 
       return response.choices[0].message.content;
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: FIXED - Fallback still uses fixed defaults
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
+          // FIXED: Always use 2000 tokens for research (fallback)
           max_tokens: 2000,
+          // FIXED: Always use 0.7 temperature for research (fallback)
           temperature: 0.7
         }, signal);
 
@@ -91,9 +100,11 @@ Generate the "ebook_research_brief" paragraph now. The output should be a single
     }
   }
 
-  async generatePrefaceAndIntroduction(researchBrief, mustHaveAspects, otherDesignConsiderations, signal = null) {
-    console.log('Generating preface and introduction');
-    
+  // VibeCoding: Updated method signature to accept gptOptions configuration object
+  async generatePrefaceAndIntroduction(researchBrief, mustHaveAspects, otherDesignConsiderations, gptOptions = {}, signal = null) {
+    // VibeCoding: Log now reflects the dynamically selected model from options
+    console.log('Generating preface and introduction using model:', gptOptions.model || 'gpt-4.1-mini-2025-04-14');
+
     const prompt = `Act as an expert developmental editor and bestselling non-fiction author. Your task is to write the ebook's preface and Introduction.
 
 CONTEXT:
@@ -111,13 +122,17 @@ Format your response as a JSON object with two keys:
 {"preface": "<html content for preface>", "introduction": "<html content for introduction>"}`;
 
     try {
+      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+        model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        max_tokens: 3000,
-        temperature: 0.7
+        // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
+        max_tokens: gptOptions.max_tokens_gpt || 3000,
+        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+        temperature: gptOptions.temperature || 0.7
       }, signal);
 
       try {
@@ -131,15 +146,18 @@ Format your response as a JSON object with two keys:
         };
       }
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          max_tokens: 3000,
-          temperature: 0.7
+          // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
+          max_tokens: gptOptions.max_tokens_gpt || 3000,
+          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+          temperature: gptOptions.temperature || 0.7
         }, signal);
 
         try {
@@ -157,9 +175,11 @@ Format your response as a JSON object with two keys:
     }
   }
 
-  async generateChapterOutline(researchBrief, mustHaveAspects, maxChapters, otherDesignConsiderations, signal = null) {
-    console.log(`Generating chapter outline with max chapters: ${maxChapters}`);
-    
+  // VibeCoding: Updated method signature to accept gptOptions configuration object
+  async generateChapterOutline(researchBrief, mustHaveAspects, maxChapters, otherDesignConsiderations, gptOptions = {}, signal = null) {
+    // VibeCoding: Log now reflects the dynamically selected model from options
+    console.log(`Generating chapter outline with max chapters: ${maxChapters} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
+
     const prompt = `Act as an expert developmental editor and curriculum design specialist. Your task is to apply curriculum design principles to outline a practical, high-impact ebook by structuring the ebook's main chapters as a sequence of "courses".
 
 CONTEXT:
@@ -182,13 +202,17 @@ Your output MUST be an array of JSON objects. Each object represents a chapter a
 Return ONLY the JSON array, no other text.`;
 
     try {
+      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+        model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        max_tokens: 2000,
-        temperature: 0.7
+        // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
+        max_tokens: gptOptions.max_tokens_gpt || 2000,
+        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+        temperature: gptOptions.temperature || 0.7
       }, signal);
 
       try {
@@ -200,15 +224,18 @@ Return ONLY the JSON array, no other text.`;
         throw new Error('Failed to parse chapter outline JSON response');
       }
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          max_tokens: 2000,
-          temperature: 0.7
+          // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
+          max_tokens: gptOptions.max_tokens_gpt || 2000,
+          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+          temperature: gptOptions.temperature || 0.7
         }, signal);
 
         try {
@@ -224,9 +251,11 @@ Return ONLY the JSON array, no other text.`;
     }
   }
 
-  async generateChapterTopics(researchBrief, chapterTitle, chapterDescription, mustHaveAspects, signal = null) {
-    console.log(`Generating topics for chapter: ${chapterTitle}`);
-    
+  // VibeCoding: Updated method signature to accept gptOptions configuration object
+  async generateChapterTopics(researchBrief, chapterTitle, chapterDescription, mustHaveAspects, gptOptions = {}, signal = null) {
+    // VibeCoding: Log now reflects the dynamically selected model from options
+    console.log(`Generating topics for chapter: ${chapterTitle} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
+
     const prompt = `As an expert ebook architect, you are designing a single chapter of an authoritative professional ebook. Your task is to create the complete, detailed content outline for this single chapter.
 
 CONTEXT:
@@ -234,6 +263,7 @@ ${researchBrief}
 
 Current Chapter: ${chapterTitle}
 Chapter Description: ${chapterDescription}
+
 Must-Have aspects: ${mustHaveAspects}
 
 TASK:
@@ -249,13 +279,17 @@ Your output MUST be a single raw array of JSON objects. Each object in the array
 Return ONLY the JSON array, no other text.`;
 
     try {
+      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+        model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        max_tokens: 2000,
-        temperature: 0.7
+        // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
+        max_tokens: gptOptions.max_tokens_gpt || 2000,
+        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+        temperature: gptOptions.temperature || 0.7
       }, signal);
 
       try {
@@ -267,15 +301,18 @@ Return ONLY the JSON array, no other text.`;
         throw new Error('Failed to parse chapter topics JSON response');
       }
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          max_tokens: 2000,
-          temperature: 0.7
+          // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
+          max_tokens: gptOptions.max_tokens_gpt || 2000,
+          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
+          temperature: gptOptions.temperature || 0.7
         }, signal);
 
         try {
@@ -291,9 +328,11 @@ Return ONLY the JSON array, no other text.`;
     }
   }
 
-  async generateTopicIntroduction(researchBrief, chapterTitle, chapterDescription, topicTitle, topicObjective, lessons, signal = null) {
-    console.log(`Generating topic introduction for: ${topicTitle} using gpt-4o-mini`);
-    
+  // VibeCoding: Updated method signature to accept gptOptions configuration object
+  async generateTopicIntroduction(researchBrief, chapterTitle, chapterDescription, topicTitle, topicObjective, lessons, gptOptions = {}, signal = null) {
+    // VibeCoding: Log now reflects the dynamically selected model from options
+    console.log(`Generating topic introduction for: ${topicTitle} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
+
     const lessonsJson = JSON.stringify(lessons);
     const prompt = `Write the introductory and activity-focused content for a single topic.
 
@@ -301,6 +340,7 @@ CONTEXT:
 Overall context: ${researchBrief}
 Course title: ${chapterTitle}
 Course description: ${chapterDescription}
+
 Current Topic: ${topicTitle}
 Learning objective: ${topicObjective}
 Lessons in this Topic: ${lessonsJson}
@@ -310,13 +350,17 @@ Generate the topic introduction in plain text format:
 "topicIntroduction": A compelling introductory paragraph (150-200 words) for the topic.`;
 
     try {
+      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+        model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        max_tokens: 1000,
-        temperature: 0.5
+        // DYNAMIC_OPTION: Use max_tokens from options, or default to 1000
+        max_tokens: gptOptions.max_tokens_gpt || 1000,
+        // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
+        temperature: gptOptions.temperature || 0.5
       }, signal);
 
       try {
@@ -334,15 +378,18 @@ Generate the topic introduction in plain text format:
         return response.choices[0].message.content;
       }
     } catch (error) {
-      console.log('Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          max_tokens: 1000,
-          temperature: 0.5
+          // DYNAMIC_OPTION: Use max_tokens from options, or default to 1000
+          max_tokens: gptOptions.max_tokens_gpt || 1000,
+          // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
+          temperature: gptOptions.temperature || 0.5
         }, signal);
 
         const content = fallbackResponse.choices[0].message.content;
@@ -350,6 +397,7 @@ Generate the topic introduction in plain text format:
           const jsonMatch = content.match(/"topicIntroduction":\s*"([^"]+)"/);
           return jsonMatch ? jsonMatch[1] : content;
         }
+        
         return content;
       } catch (fallbackError) {
         console.error('Fallback generation also failed:', fallbackError);
@@ -358,6 +406,7 @@ Generate the topic introduction in plain text format:
     }
   }
 
+  // VibeCoding: Updated method signature to accept gptOptions configuration object
   async generateSectionContent(
     fullContext,
     lessonTitle,
@@ -367,12 +416,16 @@ Generate the topic introduction in plain text format:
     userAddedContext = '',
     vectorStoreId = null,
     webSearchContext = null,
+    gptOptions = {}, // DYNAMIC_OPTION: New configuration object for GPT parameters
     signal = null
   ) {
-    console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${webSearchContext ? ' with web context' : ''}`);
+    // VibeCoding: Log now shows the dynamically selected model from gptOptions
+    console.log(`🤖 Generating section content for: ${lessonTitle} with model ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}${vectorStoreId ? ' with RAG' : ''}${webSearchContext ? ' with web context' : ''}`);
 
     // Enhanced system prompt that includes web research context
-    const systemPrompt = `Act as an expert ebook writer. ${fullContext}
+    const systemPrompt = `Act as an expert ebook writer.
+
+${fullContext}
 
 Focus on actionable strategies that readers can implement immediately. Address emotional triggers. Emphasize benefits. Include common mistakes and how to avoid them. Use case studies or examples from real businesses to make content relatable. Provide templates and actionable checklists if applicable. Keep the text as action focused as possible. Quote recent research on this topic if any. Keep the tone motivating and supportive. Sound like Malcolm Gladwell or Daniel Pink for this ebook.
 
@@ -398,15 +451,14 @@ Generate the readingContent: The main text content (~1500-2000 words). Generate 
 Objectives: Provide practical, actionable content that readers can implement immediately.`;
 
     try {
-      // ✅ FIXED: Variable naming conflict resolved
       if (vectorStoreId) {
         console.log(`🔍 Using RAG with vector store: ${vectorStoreId}${webSearchContext ? ' and web context' : ''}`);
         
-        // ✅ FIXED: Use RAG with vector store and web context
+        // Use RAG with vector store and web context
         const VectorStoreService = (await import('./vectorStoreService.js')).default;
         const vectorStoreService = new VectorStoreService(this.apiKey);
         
-        // ✅ CRITICAL: Check vector store status before using
+        // Check vector store status before using
         try {
           const storeStatus = await vectorStoreService.checkVectorStoreStatus(vectorStoreId);
           console.log('📊 Vector store status:', storeStatus);
@@ -429,43 +481,52 @@ Objectives: Provide practical, actionable content that readers can implement imm
         }
         
         if (vectorStoreId) {
+          // VibeCoding: Pass gptOptions to RAG generation for dynamic token limits
           const ragResponse = await vectorStoreService.generateContentWithRAG(
             vectorStoreId,
             systemPrompt,
             userPrompt,
-            1800
+            gptOptions.max_tokens_gpt || 1800 // DYNAMIC_OPTION: Use max_tokens from gptOptions
           );
           
           console.log('✅ RAG section content generated successfully');
           return ragResponse;
         }
       }
-      
+
       // Use standard chat completion with web context
       console.log('🤖 Using standard content generation (no RAG)');
+      
+      // VibeCoding: Parameters are now sourced from the gptOptions object with fallbacks
       const standardResponse = await this.makeRequest('/chat/completions', {
-        model: 'gpt-4o-mini',
+        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+        model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 3000,
-        temperature: 0.5
+        // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
+        max_tokens: gptOptions.max_tokens_gpt || 3000,
+        // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
+        temperature: gptOptions.temperature || 0.5
       }, signal);
 
       console.log('✅ Standard section content generated successfully');
       return standardResponse.choices[0].message.content;
     } catch (error) {
-      console.log('❌ Error with gpt-4o-mini, falling back to gpt-3.5-turbo:', error.message);
+      console.log('❌ Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
+        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 3000,
-          temperature: 0.5
+          // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
+          max_tokens: gptOptions.max_tokens_gpt || 3000,
+          // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
+          temperature: gptOptions.temperature || 0.5
         }, signal);
 
         return fallbackResponse.choices[0].message.content;
