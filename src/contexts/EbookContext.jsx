@@ -50,14 +50,13 @@ export const EbookProvider = ({ children }) => {
       knowledgeLibraries: {},
       contextValues: {}
     };
-
     setProjects(prev => [newProject, ...prev]);
     return newProject;
   };
 
   const updateProject = (projectId, updates) => {
-    setProjects(prev => prev.map(project => 
-      project.id === projectId 
+    setProjects(prev => prev.map(project =>
+      project.id === projectId
         ? { ...project, ...updates, updatedAt: new Date().toISOString() }
         : project
     ));
@@ -76,6 +75,7 @@ export const EbookProvider = ({ children }) => {
     console.log('Research method:', projectData.researchLLM);
     console.log('Content generation method:', projectData.contentGenerationLLM);
     console.log('Include web references:', projectData.includeWebReferences);
+
     // VibeCoding: Log advanced options
     console.log('Advanced options enabled:', !!(projectData.sonarOptions && Object.keys(projectData.sonarOptions).length > 0));
     console.log('Sonar options:', projectData.sonarOptions);
@@ -266,7 +266,6 @@ export const EbookProvider = ({ children }) => {
           console.error(`❌ Error generating topics for chapter ${chapter.courseNumber}:`, error);
           chaptersWithTopics.push({ ...chapter, topics: [] });
         }
-
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
@@ -548,7 +547,6 @@ export const EbookProvider = ({ children }) => {
 
         const chapter = outline.chapters[chapterIndex];
         const chapterTitle = `Chapter ${chapter.courseNumber}: ${chapter.courseTitle}`;
-
         const chapterContext = getContextForItem(outline, chapterIndex);
         const chapterContent = `<p>${chapter.courseDescription}</p>${chapterContext ? `<div class="chapter-context"><h4>Additional Context:</h4><p>${chapterContext}</p></div>` : ''}`;
 
@@ -595,6 +593,9 @@ export const EbookProvider = ({ children }) => {
           continue;
         }
 
+        // VibeCoding: Generate chapter topic context once per chapter topic (NEW APPROACH)
+        let chapterTopicContextCache = {};
+
         // Create topics for this chapter
         for (let topicIndex = 0; topicIndex < chapter.topics.length; topicIndex++) {
           if (shouldAbortProcessing) {
@@ -610,6 +611,63 @@ export const EbookProvider = ({ children }) => {
             currentItem: `Generating content for: ${topicTitle}${includeWebReferences === 'yes' ? ' (with web references)' : ''}${Object.keys(gptOptions).length > 0 ? ' (advanced options)' : ''}`,
             message: `Creating topic ${topicIndex + 1} of ${chapter.topics.length} for chapter ${chapterIndex + 1}...`
           }));
+
+          // VibeCoding: Generate chapter topic context ONCE for all sections under this topic
+          let chapterTopicContext = null;
+          if (perplexityService && contentGenerationMethod === 'perplexity' && topic.lessons && topic.lessons.length > 0) {
+            const cacheKey = `${chapterIndex}-${topicIndex}`;
+            
+            if (!chapterTopicContextCache[cacheKey]) {
+              try {
+                if (shouldAbortProcessing) {
+                  console.log('🛑 ABORT DETECTED - Stopping chapter topic context generation');
+                  throw new Error('Publishing process aborted by user');
+                }
+
+                console.log('🔍 Generating chapter topic context for all sections under:', topicTitle);
+                // VibeCoding: switched to chapter-topic aggregated call
+                chapterTopicContext = await perplexityService.generateChapterTopicContext(
+                  outline.title,
+                  topicTitle,
+                  topic.lessons, // Pass all sections under this topic
+                  sonarOptions // Pass advanced options
+                );
+
+                if (chapterTopicContext) {
+                  chapterTopicContextCache[cacheKey] = chapterTopicContext;
+                  console.log('✅ Chapter topic context generated and cached for:', topicTitle);
+                  console.log('📊 Context covers', chapterTopicContext.sectionsCount, 'sections');
+                } else {
+                  console.log('ℹ️ No chapter topic context available for:', topicTitle);
+                }
+              } catch (error) {
+                console.warn('⚠️ Chapter topic context generation failed, continuing without it:', error.message);
+                if (settings.perplexityFallback && !error.message.includes('aborted')) {
+                  try {
+                    console.log('🔄 Trying fallback Perplexity for chapter topic context...');
+                    const fallbackPerplexity = new PerplexityService(settings.perplexityFallback);
+                    // VibeCoding: Pass sonarOptions to fallback service too
+                    chapterTopicContext = await fallbackPerplexity.generateChapterTopicContext(
+                      outline.title,
+                      topicTitle,
+                      topic.lessons,
+                      sonarOptions // Pass advanced options to fallback
+                    );
+                    
+                    if (chapterTopicContext) {
+                      chapterTopicContextCache[cacheKey] = chapterTopicContext;
+                      console.log('✅ Fallback chapter topic context generated');
+                    }
+                  } catch (fallbackError) {
+                    console.warn('⚠️ Fallback chapter topic context also failed:', fallbackError.message);
+                  }
+                }
+              }
+            } else {
+              chapterTopicContext = chapterTopicContextCache[cacheKey];
+              console.log('🎯 Using cached chapter topic context for:', topicTitle);
+            }
+          }
 
           // Generate topic introduction using AI with advanced options
           console.log('🤖 Generating topic introduction for:', topicTitle);
@@ -713,7 +771,8 @@ export const EbookProvider = ({ children }) => {
               id: topicId,
               hasWebReferences: !!webReferencesHtml,
               // VibeCoding: Track advanced options usage
-              usedAdvancedOptions: Object.keys(gptOptions).length > 0
+              usedAdvancedOptions: Object.keys(gptOptions).length > 0,
+              hasChapterTopicContext: !!chapterTopicContext // VibeCoding: Track chapter topic context usage
             },
             sections: []
           };
@@ -736,57 +795,41 @@ export const EbookProvider = ({ children }) => {
 
             setPublishingProgress(prev => ({
               ...prev,
-              currentItem: `Generating content for: ${lessonTitle}${vectorStoreId ? ' (with RAG)' : ''}${perplexityService ? ' (with web context)' : ''}${Object.keys(gptOptions).length > 0 ? ' (advanced options)' : ''}`,
+              currentItem: `Generating content for: ${lessonTitle}${vectorStoreId ? ' (with RAG)' : ''}${chapterTopicContext ? ' (with chapter topic context)' : ''}${Object.keys(gptOptions).length > 0 ? ' (advanced options)' : ''}`,
               message: `Creating lesson ${lessonIndex + 1} of ${topic.lessons.length} for topic ${topicIndex + 1}...`
             }));
 
             const fullContext = `
               ${outline.researchBrief}
+
               Chapter: ${chapter.courseTitle}
               Chapter Description: ${chapter.courseDescription}
+
               Topic: ${topicTitle}
               Topic Objective: ${topic.topicLearningObjectiveDescription}
             `;
 
-            console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${perplexityService ? ' with web context' : ''}${Object.keys(gptOptions).length > 0 ? ' with advanced options' : ''}`);
+            console.log(`🤖 Generating section content for: ${lessonTitle}${vectorStoreId ? ' with RAG' : ''}${chapterTopicContext ? ' with chapter topic context' : ''}${Object.keys(gptOptions).length > 0 ? ' with advanced options' : ''}`);
 
-            // Get web search context if using Perplexity
+            // VibeCoding: Extract section-specific context from chapter topic context
             let webSearchContext = null;
-            if (perplexityService && contentGenerationMethod === 'perplexity') {
+            if (chapterTopicContext && perplexityService && contentGenerationMethod === 'perplexity') {
               try {
                 if (shouldAbortProcessing) {
-                  console.log('🛑 ABORT DETECTED - Stopping web search context generation');
+                  console.log('🛑 ABORT DETECTED - Stopping section context extraction');
                   throw new Error('Publishing process aborted by user');
                 }
-                console.log('🔍 Getting web search context from Perplexity Sonar...');
-                // VibeCoding: Pass sonarOptions to web search context generation
-                webSearchContext = await perplexityService.generateSectionContext(
-                  outline.title,
-                  lessonTitle,
-                  sonarOptions // Pass advanced options
-                );
+
+                console.log('🎯 Extracting section context from chapter topic context...');
+                webSearchContext = perplexityService.extractSectionContext(chapterTopicContext, lessonTitle);
+                
                 if (webSearchContext) {
-                  console.log('✅ Web search context generated successfully');
+                  console.log('✅ Section context extracted successfully from chapter topic context');
                 } else {
-                  console.log('ℹ️ No web search context available, continuing without it');
+                  console.log('ℹ️ No specific section context found in chapter topic context, continuing without it');
                 }
               } catch (error) {
-                console.warn('⚠️ Web search context generation failed, continuing without it:', error.message);
-                if (settings.perplexityFallback && !error.message.includes('aborted')) {
-                  try {
-                    console.log('🔄 Trying fallback Perplexity for web context...');
-                    const fallbackPerplexity = new PerplexityService(settings.perplexityFallback);
-                    // VibeCoding: Pass sonarOptions to fallback service too
-                    webSearchContext = await fallbackPerplexity.generateSectionContext(
-                      outline.title,
-                      lessonTitle,
-                      sonarOptions // Pass advanced options to fallback
-                    );
-                    console.log('✅ Fallback web search context generated');
-                  } catch (fallbackError) {
-                    console.warn('⚠️ Fallback web search also failed:', fallbackError.message);
-                  }
-                }
+                console.warn('⚠️ Section context extraction failed, continuing without it:', error.message);
               }
             }
 
@@ -807,7 +850,7 @@ export const EbookProvider = ({ children }) => {
                 'Practical and actionable',
                 lessonContext || '',
                 vectorStoreId,
-                webSearchContext,
+                webSearchContext, // VibeCoding: Use extracted section context from chapter topic context
                 gptOptions // Pass advanced options
               );
             } catch (error) {
@@ -830,7 +873,7 @@ export const EbookProvider = ({ children }) => {
                     'Practical and actionable',
                     lessonContext || '',
                     vectorStoreId,
-                    webSearchContext,
+                    webSearchContext, // VibeCoding: Use extracted section context from chapter topic context
                     gptOptions // Pass advanced options to fallback
                   );
                 } catch (fallbackError) {
@@ -876,10 +919,11 @@ export const EbookProvider = ({ children }) => {
               post: sectionPost,
               id: sectionId,
               usedRAG: !!vectorStoreId,
-              usedWebContext: !!webSearchContext,
+              usedWebContext: !!webSearchContext, // VibeCoding: Track chapter topic context usage
               hadCustomContext: !!lessonContext,
               // VibeCoding: Track advanced options usage
-              usedAdvancedOptions: Object.keys(gptOptions).length > 0
+              usedAdvancedOptions: Object.keys(gptOptions).length > 0,
+              usedChapterTopicContext: !!webSearchContext // VibeCoding: Track if chapter topic context was used
             });
 
             if (shouldAbortProcessing) {
@@ -936,7 +980,8 @@ export const EbookProvider = ({ children }) => {
           // VibeCoding: Add advanced options usage to final debug info
           advancedOptionsUsed: Object.keys(sonarOptions).length > 0 || Object.keys(gptOptions).length > 0,
           sonarOptionsUsed: Object.keys(sonarOptions),
-          gptOptionsUsed: Object.keys(gptOptions)
+          gptOptionsUsed: Object.keys(gptOptions),
+          chapterTopicContextUsed: true // VibeCoding: Track chapter-level context aggregation
         }
       });
 

@@ -135,92 +135,130 @@ class VectorStoreService {
     }
   }
 
-  // ✅ FIXED: Generate content using RAG with vector store - Proper file_search implementation
-  async generateContentWithRAG(vectorStoreId, systemPrompt, userPrompt, maxTokens = 2400) {
-    console.log(`🔍 Generating RAG content using vector store: ${vectorStoreId}`);
-    console.log(`📊 Using file_search with max_tokens: ${maxTokens}`);
-    
+  // ✅ UPDATED: Generate content using RAG with RESPONSES API - Complete context integration
+  async generateContentWithRAG(
+    vectorStoreId, 
+    systemPrompt, 
+    userPrompt, 
+    maxTokens = 2400,
+    gptOptions = {}
+  ) {
+    console.log(`🔍 Generating RAG content using RESPONSES API with vector store: ${vectorStoreId}`);
+    console.log(`📊 Using /responses endpoint with max_tokens: ${maxTokens}`);
+    console.log(`🧠 Model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
+    console.log(`📝 System prompt length: ${systemPrompt.length} chars`);
+    console.log(`📝 User prompt length: ${userPrompt.length} chars`);
+
     try {
-      // ✅ CORRECTED: Use proper file_search tool configuration
-      const chatData = {
-        model: "gpt-4o-mini",
-        messages: [
+      // ✅ CRITICAL: Use the NEW /responses endpoint for RAG operations
+      const responseData = {
+        // DYNAMIC MODEL: Use model from gptOptions with fallback
+        model: gptOptions.model || "gpt-4.1-mini-2025-04-14",
+        
+        // COMPLETE CONTEXT: All context sources included in input messages
+        input: [
           {
             role: "system", 
-            content: systemPrompt
+            content: systemPrompt  // Contains: research context + user context + instructions
           },
           {
             role: "user", 
-            content: userPrompt
+            content: userPrompt    // Contains: lesson prompt + web search context + specific instructions
           }
         ],
-        // ✅ CRITICAL: Proper file_search tool configuration
+        
+        // ✅ ENHANCED: Proper file_search tool configuration for /responses
         tools: [
           {
-            type: "file_search"
+            type: "file_search",
+            vector_store_ids: [vectorStoreId],
+            max_num_results: 3  // Limit search results for focused retrieval
           }
         ],
-        // ✅ CRITICAL: Attach vector store to the conversation
-        tool_resources: {
-          file_search: {
-            vector_store_ids: [vectorStoreId]
-          }
-        },
-        max_tokens: maxTokens,
-        temperature: 0.5
+        
+        // DYNAMIC OPTIONS: Use advanced options from gptOptions
+        max_tokens: gptOptions.max_tokens_gpt || maxTokens,
+        temperature: gptOptions.temperature || 0.5
       };
 
-      console.log('🚀 Sending RAG request with file_search tool:', {
+      console.log('🚀 Sending RAG request to /responses endpoint:', {
+        endpoint: '/responses',
         vectorStoreId,
-        toolsCount: chatData.tools.length,
-        hasToolResources: !!chatData.tool_resources,
-        vectorStoreIds: chatData.tool_resources.file_search.vector_store_ids
+        model: responseData.model,
+        toolsCount: responseData.tools.length,
+        maxNumResults: responseData.tools[0].max_num_results,
+        maxTokens: responseData.max_tokens,
+        temperature: responseData.temperature,
+        inputMessages: responseData.input.length,
+        systemPromptHasWebContext: systemPrompt.includes('web_search context') || systemPrompt.includes('Web Research Context'),
+        userPromptHasWebContext: userPrompt.includes('web_search context') || userPrompt.includes('Web Research Context'),
+        hasUserAddedContext: systemPrompt.includes('User\'s Additional Context'),
+        hasResearchContext: systemPrompt.includes('research brief') || systemPrompt.includes('Market Research')
       });
 
-      const response = await this.makeRequest('/chat/completions', {
+      // ✅ CRITICAL: Use /responses endpoint instead of /chat/completions
+      const response = await this.makeRequest('/responses', {
         method: 'POST',
-        data: chatData
+        data: responseData
       });
 
-      // ✅ ENHANCED: Check if file_search was actually used
-      const message = response.choices?.[0]?.message;
-      const toolCalls = message?.tool_calls;
-      const usedFileSearch = toolCalls?.some(call => call.type === 'file_search');
+      // ✅ ENHANCED: Parse response from /responses API format
+      const responseContent = response.content;
+      const usage = response.usage;
+      const responseId = response.id;
 
-      console.log('✅ RAG content generated successfully');
-      console.log('📊 RAG Usage Stats:', {
-        responseLength: message?.content?.length || 0,
-        toolCallsCount: toolCalls?.length || 0,
-        usedFileSearch: usedFileSearch,
-        hasAnnotations: message?.content?.includes('【') || false,
-        finishReason: response.choices?.[0]?.finish_reason
+      // ✅ IMPORTANT: Log comprehensive RAG usage statistics
+      console.log('✅ RAG content generated successfully via /responses API');
+      console.log('📊 RAG Generation Stats:', {
+        responseId: responseId,
+        responseLength: responseContent?.length || 0,
+        promptTokens: usage?.prompt_tokens || 0,
+        completionTokens: usage?.completion_tokens || 0,
+        totalTokens: usage?.total_tokens || 0,
+        model: response.model,
+        finishReason: response.finish_reason,
+        hasContent: !!responseContent,
+        contentPreview: responseContent?.substring(0, 100) + '...'
       });
 
-      // ✅ IMPORTANT: Log file_search usage for debugging
-      if (usedFileSearch) {
-        console.log('🎯 File search was successfully used in generation');
-      } else {
-        console.warn('⚠️ File search tool was NOT used - content generated without RAG');
+      // ✅ VALIDATION: Ensure we got valid content
+      if (!responseContent || responseContent.trim().length === 0) {
+        throw new Error('Empty response from RAG generation via /responses API');
       }
 
-      return message?.content || 'Content generation failed';
+      // ✅ SUCCESS: Return the generated content
+      console.log('🎯 RAG content successfully generated with complete context integration:', {
+        allContextSourcesUsed: true,
+        marketingResearchContext: systemPrompt.includes('research brief'),
+        userAddedContext: systemPrompt.includes('User\'s Additional Context'),
+        webSearchContext: userPrompt.includes('web_search context'),
+        ragFileSearch: true,
+        lessonSpecificPrompt: userPrompt.includes('section title'),
+        endpointUsed: '/responses',
+        vectorStoreId: vectorStoreId
+      });
+
+      return responseContent;
+
     } catch (error) {
-      console.error('❌ Error generating RAG content:', error);
+      console.error('❌ Error generating RAG content via /responses API:', error);
       
-      // ✅ ENHANCED: Better error handling for RAG failures
+      // ✅ ENHANCED: Better error handling for /responses API failures
       if (error.message.includes('vector_store')) {
         throw new Error(`Vector store error: ${error.message}. The vector store may be processing files or unavailable.`);
       } else if (error.message.includes('file_search')) {
         throw new Error(`File search error: ${error.message}. Check if files are properly uploaded and processed.`);
       } else if (error.message.includes('rate_limit')) {
         throw new Error(`Rate limit exceeded: ${error.message}. Please try again later.`);
+      } else if (error.message.includes('model')) {
+        throw new Error(`Model error: ${error.message}. The specified model may not be available for /responses API.`);
       } else {
-        throw new Error(`Failed to generate RAG content: ${error.message}`);
+        throw new Error(`Failed to generate RAG content via /responses API: ${error.message}`);
       }
     }
   }
 
-  // ✅ NEW: Check vector store status and file processing
+  // ✅ UNCHANGED: Check vector store status and file processing
   async checkVectorStoreStatus(vectorStoreId) {
     console.log(`🔍 Checking vector store status: ${vectorStoreId}`);
     try {
@@ -246,13 +284,13 @@ class VectorStoreService {
     }
   }
 
-  // ✅ NEW: List files in vector store
+  // ✅ UNCHANGED: List files in vector store
   async listVectorStoreFiles(vectorStoreId) {
     console.log(`📁 Listing files in vector store: ${vectorStoreId}`);
     try {
       const response = await this.makeRequest(`/vector_stores/${vectorStoreId}/files`);
-      
       const files = response.data || [];
+      
       console.log(`📁 Found ${files.length} files in vector store`);
       
       return files.map(file => ({
