@@ -6,7 +6,6 @@ class OpenAIService {
   }
 
   async makeRequest(endpoint, data, signal = null) {
-    // VibeCoding: Log now shows the dynamically selected model from the request data
     console.log(`Making OpenAI request to ${endpoint} with model: ${data.model}`);
 
     try {
@@ -31,7 +30,6 @@ class OpenAIService {
       }
 
       const result = await response.json();
-      // VibeCoding: Success log now shows the actual model used in the request
       console.log(`OpenAI request successful with model: ${data.model}`);
       return result;
     } catch (error) {
@@ -44,9 +42,7 @@ class OpenAIService {
     }
   }
 
-  // VibeCoding: FIXED - generateMarketResearch now uses FIXED defaults, ignoring gptOptions for research
   async generateMarketResearch(ebookNiche, mustHaveAspects, otherDesignConsiderations, gptOptions = {}, signal = null) {
-    // VibeCoding: Log shows fixed defaults for research
     console.log(`Generating market research for niche: ${ebookNiche} using FIXED defaults (model: gpt-4.1-mini-2025-04-14, tokens: 2000)`);
 
     const prompt = `Act as a Senior Content Strategist and bestselling non-fiction ghostwriter. I am commissioning an authoritative ebook in the professional niche of: ${ebookNiche}.
@@ -64,16 +60,12 @@ The final output MUST be a single text paragraph string titled "ebook_research_b
 Generate the "ebook_research_brief" paragraph now. The output should be a single, continuous text string that can be passed to the next node.`;
 
     try {
-      // VibeCoding: FIXED - Use fixed defaults for research consistency, ignore gptOptions
       const response = await this.makeRequest('/chat/completions', {
-        // FIXED: Always use gpt-4.1-mini-2025-04-14 for research
         model: 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        // FIXED: Always use 2000 tokens for research
         max_tokens: 2000,
-        // FIXED: Always use 0.7 temperature for research
         temperature: 0.7
       }, signal);
 
@@ -81,15 +73,12 @@ Generate the "ebook_research_brief" paragraph now. The output should be a single
     } catch (error) {
       console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
-        // VibeCoding: FIXED - Fallback still uses fixed defaults
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          // FIXED: Always use 2000 tokens for research (fallback)
           max_tokens: 2000,
-          // FIXED: Always use 0.7 temperature for research (fallback)
           temperature: 0.7
         }, signal);
 
@@ -100,9 +89,7 @@ Generate the "ebook_research_brief" paragraph now. The output should be a single
     }
   }
 
-  // VibeCoding: Updated method signature to accept gptOptions configuration object
   async generatePrefaceAndIntroduction(researchBrief, mustHaveAspects, otherDesignConsiderations, gptOptions = {}, signal = null) {
-    // VibeCoding: Log now reflects the dynamically selected model from options
     console.log('Generating preface and introduction using model:', gptOptions.model || 'gpt-4.1-mini-2025-04-14');
 
     const prompt = `Act as an expert developmental editor and bestselling non-fiction author. Your task is to write the ebook's preface and Introduction.
@@ -121,16 +108,12 @@ Format your response as a JSON object with two keys:
 {"preface": "<html content for preface>", "introduction": "<html content for introduction>"}`;
 
     try {
-      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
         model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
         max_tokens: gptOptions.max_tokens_gpt || 3000,
-        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
         temperature: gptOptions.temperature || 0.7
       }, signal);
 
@@ -147,15 +130,12 @@ Format your response as a JSON object with two keys:
     } catch (error) {
       console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
-        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
           max_tokens: gptOptions.max_tokens_gpt || 3000,
-          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
           temperature: gptOptions.temperature || 0.7
         }, signal);
 
@@ -174,9 +154,7 @@ Format your response as a JSON object with two keys:
     }
   }
 
-  // VibeCoding: Updated method signature to accept gptOptions configuration object
   async generateChapterOutline(researchBrief, mustHaveAspects, maxChapters, otherDesignConsiderations, gptOptions = {}, signal = null) {
-    // VibeCoding: Log now reflects the dynamically selected model from options
     console.log(`Generating chapter outline with max chapters: ${maxChapters} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
 
     const prompt = `Act as an expert developmental editor and curriculum design specialist. Your task is to apply curriculum design principles to outline a practical, high-impact ebook by structuring the ebook's main chapters as a sequence of "courses".
@@ -200,16 +178,12 @@ Your output MUST be an array of JSON objects. Each object represents a chapter a
 Return ONLY the JSON array, no other text.`;
 
     try {
-      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
         model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
         max_tokens: gptOptions.max_tokens_gpt || 2000,
-        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
         temperature: gptOptions.temperature || 0.7
       }, signal);
 
@@ -224,15 +198,12 @@ Return ONLY the JSON array, no other text.`;
     } catch (error) {
       console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
-        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
           max_tokens: gptOptions.max_tokens_gpt || 2000,
-          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
           temperature: gptOptions.temperature || 0.7
         }, signal);
 
@@ -249,9 +220,7 @@ Return ONLY the JSON array, no other text.`;
     }
   }
 
-  // VibeCoding: Updated method signature to accept gptOptions configuration object
   async generateChapterTopics(researchBrief, chapterTitle, chapterDescription, mustHaveAspects, gptOptions = {}, signal = null) {
-    // VibeCoding: Log now reflects the dynamically selected model from options
     console.log(`Generating topics for chapter: ${chapterTitle} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
 
     const prompt = `As an expert ebook architect, you are designing a single chapter of an authoritative professional ebook. Your task is to create the complete, detailed content outline for this single chapter.
@@ -276,16 +245,12 @@ Your output MUST be a single raw array of JSON objects. Each object in the array
 Return ONLY the JSON array, no other text.`;
 
     try {
-      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
         model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
         max_tokens: gptOptions.max_tokens_gpt || 2000,
-        // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
         temperature: gptOptions.temperature || 0.7
       }, signal);
 
@@ -300,15 +265,12 @@ Return ONLY the JSON array, no other text.`;
     } catch (error) {
       console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
-        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          // DYNAMIC_OPTION: Use max_tokens from options, or default to 2000
           max_tokens: gptOptions.max_tokens_gpt || 2000,
-          // DYNAMIC_OPTION: Use temperature from options, or default to 0.7
           temperature: gptOptions.temperature || 0.7
         }, signal);
 
@@ -325,9 +287,7 @@ Return ONLY the JSON array, no other text.`;
     }
   }
 
-  // VibeCoding: Updated method signature to accept gptOptions configuration object
   async generateTopicIntroduction(researchBrief, chapterTitle, chapterDescription, topicTitle, topicObjective, lessons, gptOptions = {}, signal = null) {
-    // VibeCoding: Log now reflects the dynamically selected model from options
     console.log(`Generating topic introduction for: ${topicTitle} using model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}`);
 
     const lessonsJson = JSON.stringify(lessons);
@@ -346,16 +306,12 @@ Generate the topic introduction in plain text format:
 "topicIntroduction": A compelling introductory paragraph (150-200 words) for the topic.`;
 
     try {
-      // VibeCoding: Use dynamic options with fallbacks to defaults
       const response = await this.makeRequest('/chat/completions', {
-        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
         model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
           { role: 'user', content: prompt }
         ],
-        // DYNAMIC_OPTION: Use max_tokens from options, or default to 1000
         max_tokens: gptOptions.max_tokens_gpt || 1000,
-        // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
         temperature: gptOptions.temperature || 0.5
       }, signal);
 
@@ -374,15 +330,12 @@ Generate the topic introduction in plain text format:
     } catch (error) {
       console.log('Error with primary model, falling back to gpt-3.5-turbo:', error.message);
       try {
-        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
             { role: 'user', content: prompt }
           ],
-          // DYNAMIC_OPTION: Use max_tokens from options, or default to 1000
           max_tokens: gptOptions.max_tokens_gpt || 1000,
-          // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
           temperature: gptOptions.temperature || 0.5
         }, signal);
 
@@ -399,7 +352,7 @@ Generate the topic introduction in plain text format:
     }
   }
 
-  // ✅ ENHANCED: Two-Stage RAG Content Generation Implementation with Comprehensive Token Tracking
+  // 🔧 FIXED: Enhanced RAG Content Generation with Proper Response Parsing
   async generateSectionContent(
     fullContext,
     lessonTitle,
@@ -436,7 +389,7 @@ Generate the topic introduction in plain text format:
       }
     };
 
-    // 🔢 Estimate web search context tokens (rough approximation: 1 token ≈ 4 characters)
+    // 🔢 Estimate web search context tokens
     if (webSearchContext) {
       tokenTracking.web_search_context.estimated_tokens = Math.ceil(webSearchContext.length / 4);
       console.log(`📊 WEB SEARCH CONTEXT TOKEN ESTIMATE: ${tokenTracking.web_search_context.estimated_tokens} tokens (${webSearchContext.length} characters)`);
@@ -444,7 +397,7 @@ Generate the topic introduction in plain text format:
 
     let ragContent = null;
 
-    // ✅ STAGE 1: Simple RAG Call (/responses) - Only if vector store is available
+    // ✅ STAGE 1: RAG Content Extraction using /responses API
     if (vectorStoreId) {
       console.log(`🔍 STAGE 1: Extracting RAG content using /responses API`);
       console.log(`📚 Vector Store ID: ${vectorStoreId}`);
@@ -459,14 +412,14 @@ Generate the topic introduction in plain text format:
         
         if (!storeStatus.isReady) {
           console.warn('⚠️ Vector store is not ready, proceeding without RAG');
-          vectorStoreId = null; // Disable RAG for this generation
+          vectorStoreId = null;
         } else {
           console.log(`✅ Vector store ready with ${storeStatus.fileCount} files`);
 
-          // Simple system prompt for RAG extraction
+          // System prompt for RAG extraction
           const ragSystemPrompt = `Act as a senior instructional designer. Output strictly as HTML, concise and practical. Focus on extracting relevant knowledge from the attached reference materials.`;
 
-          // Simple user prompt for RAG extraction
+          // User prompt for RAG extraction
           const ragUserPrompt = `Generate the readingContent (1000-1200 words in HTML) for the topic section titled "${lessonTitle}" with description "${lessonDescription}" using the relevant reference from the attached documents from the reference library using file_search tool.
 
 Focus on:
@@ -477,15 +430,15 @@ Focus on:
 
 Output should be comprehensive HTML content that can stand alone as educational material.`;
 
-          // 🔢 Calculate input tokens for STAGE 1
+          // Calculate input tokens for STAGE 1
           const stage1InputLength = ragSystemPrompt.length + ragUserPrompt.length;
-          tokenTracking.stage1_rag.input_tokens = Math.ceil(stage1InputLength / 4); // Rough estimation
+          tokenTracking.stage1_rag.input_tokens = Math.ceil(stage1InputLength / 4);
 
           console.log(`🔢 STAGE 1 INPUT TOKEN ESTIMATE: ${tokenTracking.stage1_rag.input_tokens} tokens`);
 
-          // ✅ STAGE 1: RAG Content Extraction using /responses API
+          // 🔧 CRITICAL FIX: Updated /responses API call format
           const ragResponse = await this.makeRequest('/responses', {
-            model: 'gpt-4.1-mini-2025-04-14', // Fixed model for RAG extraction
+            model: 'gpt-4.1-mini-2025-04-14',
             tools: [
               {
                 type: "file_search",
@@ -503,10 +456,20 @@ Output should be comprehensive HTML content that can stand alone as educational 
                 content: ragUserPrompt
               }
             ],
-            max_output_tokens: 1200 // Fixed tokens for RAG extraction
+            max_output_tokens: 1200
           }, signal);
 
-          // 🔢 Extract actual token usage from /responses API
+          // 🔧 CRITICAL FIX: Debug the actual response structure
+          console.log('🔍 RAG RESPONSE STRUCTURE DEBUG:', {
+            hasOutput: !!ragResponse.output,
+            hasChoices: !!ragResponse.choices,
+            hasContent: !!ragResponse.content,
+            hasMessage: !!ragResponse.message,
+            responseKeys: Object.keys(ragResponse),
+            fullResponse: ragResponse
+          });
+
+          // 🔢 Extract token usage from /responses API
           if (ragResponse.usage) {
             tokenTracking.stage1_rag.input_tokens = ragResponse.usage.prompt_tokens || tokenTracking.stage1_rag.input_tokens;
             tokenTracking.stage1_rag.output_tokens = ragResponse.usage.completion_tokens || 0;
@@ -522,33 +485,57 @@ Output should be comprehensive HTML content that can stand alone as educational 
             });
           }
 
-          // Extract the text content from the /responses API format
-          if (ragResponse.output && ragResponse.output.length > 0) {
-            // Find the message output with text content
-            const messageOutput = ragResponse.output.find(output => 
-              output.type === 'message' && 
-              output.content && 
-              output.content.length > 0 &&
-              output.content[0].type === 'output_text'
-            );
+          // 🔧 ENHANCED RESPONSE PARSING: Handle multiple possible response formats
+          ragContent = null;
 
-            if (messageOutput && messageOutput.content[0].text) {
-              ragContent = messageOutput.content[0].text;
-              
-              // Clean up any markdown code blocks if present
-              if (ragContent.includes('```html')) {
-                ragContent = ragContent.replace(/```html\n?/g, '').replace(/```\n?$/g, '');
+          // Try different response format possibilities
+          if (ragResponse.content) {
+            // Direct content field
+            ragContent = ragResponse.content;
+            console.log('✅ RAG Content found in response.content');
+          } else if (ragResponse.output && Array.isArray(ragResponse.output)) {
+            // Output array format
+            for (const outputItem of ragResponse.output) {
+              if (outputItem.type === 'message' && outputItem.content) {
+                if (Array.isArray(outputItem.content)) {
+                  // Content is an array
+                  for (const contentItem of outputItem.content) {
+                    if (contentItem.type === 'text' && contentItem.text) {
+                      ragContent = contentItem.text;
+                      console.log('✅ RAG Content found in output[].content[].text');
+                      break;
+                    }
+                  }
+                } else if (typeof outputItem.content === 'string') {
+                  // Content is a string
+                  ragContent = outputItem.content;
+                  console.log('✅ RAG Content found in output[].content (string)');
+                }
+                if (ragContent) break;
               }
-              
-              console.log('✅ STAGE 1 Complete: RAG content extracted successfully');
-              console.log(`📊 RAG Content Length: ${ragContent.length} characters`);
-            } else {
-              console.warn('⚠️ STAGE 1: No text content found in /responses API response');
-              ragContent = null;
             }
+          } else if (ragResponse.choices && ragResponse.choices[0] && ragResponse.choices[0].message) {
+            // Choices format (like chat completions)
+            ragContent = ragResponse.choices[0].message.content;
+            console.log('✅ RAG Content found in choices[0].message.content');
+          } else if (ragResponse.message && ragResponse.message.content) {
+            // Direct message format
+            ragContent = ragResponse.message.content;
+            console.log('✅ RAG Content found in message.content');
+          }
+
+          if (ragContent) {
+            // Clean up any markdown code blocks if present
+            if (ragContent.includes('```html')) {
+              ragContent = ragContent.replace(/```html\n?/g, '').replace(/```\n?$/g, '');
+            }
+            
+            console.log('✅ STAGE 1 Complete: RAG content extracted successfully');
+            console.log(`📊 RAG Content Length: ${ragContent.length} characters`);
+            console.log(`📄 RAG Content Preview: ${ragContent.substring(0, 200)}...`);
           } else {
-            console.warn('⚠️ STAGE 1: No output found in /responses API response');
-            ragContent = null;
+            console.error('❌ STAGE 1: No RAG content found in any expected response format');
+            console.log('🔍 Full response for debugging:', JSON.stringify(ragResponse, null, 2));
           }
         }
       } catch (error) {
@@ -608,9 +595,9 @@ ${ragContent}
 
 Generate comprehensive HTML content (1500-2000 words) that combines all available context sources into a cohesive, valuable learning experience.`;
 
-    // 🔢 Calculate input tokens for STAGE 2
+    // Calculate input tokens for STAGE 2
     const stage2InputLength = comprehensiveSystemPrompt.length + comprehensiveUserPrompt.length;
-    tokenTracking.stage2_final.input_tokens = Math.ceil(stage2InputLength / 4); // Rough estimation
+    tokenTracking.stage2_final.input_tokens = Math.ceil(stage2InputLength / 4);
 
     console.log(`🔢 STAGE 2 INPUT TOKEN ESTIMATE: ${tokenTracking.stage2_final.input_tokens} tokens`);
 
@@ -628,7 +615,7 @@ Generate comprehensive HTML content (1500-2000 words) that combines all availabl
 
       const finalContent = finalResponse.choices[0].message.content;
 
-      // 🔢 Extract actual token usage from STAGE 2
+      // Extract actual token usage from STAGE 2
       if (finalResponse.usage) {
         tokenTracking.stage2_final.input_tokens = finalResponse.usage.prompt_tokens || tokenTracking.stage2_final.input_tokens;
         tokenTracking.stage2_final.output_tokens = finalResponse.usage.completion_tokens || 0;
@@ -643,7 +630,7 @@ Generate comprehensive HTML content (1500-2000 words) that combines all availabl
         });
       }
 
-      // 🔢 Calculate overall totals
+      // Calculate overall totals
       tokenTracking.overall_total.input_tokens = tokenTracking.stage1_rag.input_tokens + tokenTracking.stage2_final.input_tokens + tokenTracking.web_search_context.estimated_tokens;
       tokenTracking.overall_total.output_tokens = tokenTracking.stage1_rag.output_tokens + tokenTracking.stage2_final.output_tokens;
       tokenTracking.overall_total.total_tokens = tokenTracking.overall_total.input_tokens + tokenTracking.overall_total.output_tokens;
@@ -661,6 +648,7 @@ ${ragContent ? `🔍 STAGE 1 (RAG /responses):
    • Total Tokens: ${tokenTracking.stage1_rag.total_tokens}
    • Model: gpt-4.1-mini-2025-04-14
    • Vector Store: ${vectorStoreId}
+   • RAG Content Generated: ✅ YES (${ragContent.length} characters)
 ` : '🔍 STAGE 1 (RAG): SKIPPED - No vector store'}
 ${webSearchContext ? `🌐 WEB SEARCH CONTEXT:
    • Estimated Tokens: ${tokenTracking.web_search_context.estimated_tokens}
@@ -688,6 +676,7 @@ ${webSearchContext ? `🌐 WEB SEARCH CONTEXT:
    • Processing Stages: ${ragContent ? '2 (RAG + Final)' : '1 (Final Only)'}
    • Final Content Length: ${finalContent.length} characters
    • Estimated Final Content Tokens: ${Math.ceil(finalContent.length / 4)}
+   • RAG Enhancement Status: ${ragContent ? '✅ SUCCESSFUL' : '❌ FAILED'}
 ===============================================
       `);
 
@@ -724,7 +713,7 @@ ${webSearchContext ? `🌐 WEB SEARCH CONTEXT:
           temperature: gptOptions.temperature || 0.5
         }, signal);
 
-        // 🔢 Track fallback tokens
+        // Track fallback tokens
         if (fallbackResponse.usage) {
           tokenTracking.stage2_final.input_tokens = fallbackResponse.usage.prompt_tokens || tokenTracking.stage2_final.input_tokens;
           tokenTracking.stage2_final.output_tokens = fallbackResponse.usage.completion_tokens || 0;
