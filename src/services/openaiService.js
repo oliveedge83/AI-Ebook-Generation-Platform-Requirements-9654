@@ -8,7 +8,7 @@ class OpenAIService {
   async makeRequest(endpoint, data, signal = null) {
     // VibeCoding: Log now shows the dynamically selected model from the request data
     console.log(`Making OpenAI request to ${endpoint} with model: ${data.model}`);
-    
+
     try {
       const response = await fetch(`${this.baseURL}${endpoint}`, {
         method: 'POST',
@@ -16,11 +16,9 @@ class OpenAIService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.apiKey}`,
           // Add OpenAI-Beta header when using file_search or /responses
-          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? 
-            { 'OpenAI-Beta': 'assistants=v2' } : {}),
+          ...(data.tools && data.tools.some(tool => tool.type === 'file_search') ? { 'OpenAI-Beta': 'assistants=v2' } : {}),
           // Add OpenAI-Beta header for /responses endpoint
-          ...(endpoint === '/responses' ? 
-            { 'OpenAI-Beta': 'assistants=v2' } : {})
+          ...(endpoint === '/responses' ? { 'OpenAI-Beta': 'assistants=v2' } : {})
         },
         body: JSON.stringify(data),
         signal: signal
@@ -114,7 +112,6 @@ Use the research brief below:
 ${researchBrief}
 
 Must-Have Themes: ${mustHaveAspects}
-
 Other Ebook Structural Considerations: ${otherDesignConsiderations || 'None specified'}
 
 TASK:
@@ -188,7 +185,6 @@ CONTEXT:
 ${researchBrief}
 
 Must-Have Themes: ${mustHaveAspects}
-
 Other Ebook Structural Considerations: ${otherDesignConsiderations || 'None specified'}
 
 Total number of courses (chapters) should not exceed ${maxChapters}.
@@ -265,7 +261,6 @@ ${researchBrief}
 
 Current Chapter: ${chapterTitle}
 Chapter Description: ${chapterDescription}
-
 Must-Have aspects: ${mustHaveAspects}
 
 TASK:
@@ -348,7 +343,6 @@ Lessons in this Topic: ${lessonsJson}
 
 TASK:
 Generate the topic introduction in plain text format:
-
 "topicIntroduction": A compelling introductory paragraph (150-200 words) for the topic.`;
 
     try {
@@ -368,7 +362,6 @@ Generate the topic introduction in plain text format:
       try {
         const content = response.choices[0].message.content;
         console.log('Topic introduction generated successfully');
-        
         if (content.includes('"topicIntroduction"')) {
           const jsonMatch = content.match(/"topicIntroduction":\s*"([^"]+)"/);
           return jsonMatch ? jsonMatch[1] : content;
@@ -406,7 +399,7 @@ Generate the topic introduction in plain text format:
     }
   }
 
-  // ✅ UPDATED: Complete context integration with RAG using /responses API
+  // ✅ ENHANCED: Two-Stage RAG Content Generation Implementation with Comprehensive Token Tracking
   async generateSectionContent(
     fullContext,
     lessonTitle,
@@ -416,149 +409,341 @@ Generate the topic introduction in plain text format:
     userAddedContext = '',
     vectorStoreId = null,
     webSearchContext = null,
-    gptOptions = {}, // DYNAMIC_OPTION: New configuration object for GPT parameters
+    gptOptions = {},
     signal = null
   ) {
-    // VibeCoding: Log now shows comprehensive context integration
-    console.log(`🤖 Generating section content for: ${lessonTitle} with model ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}${vectorStoreId ? ' with RAG (/responses API)' : ''}${webSearchContext ? ' with web context' : ''}`);
-    
-    console.log('📊 Context Sources Available:', {
-      marketingResearchContext: fullContext.includes('research brief') || fullContext.includes('Market Research'),
-      userAddedContext: !!userAddedContext,
-      webSearchContext: !!webSearchContext,
-      ragKnowledgeLibrary: !!vectorStoreId,
-      lessonSpecificPrompt: true
+    console.log(`🤖 Starting Two-Stage RAG Content Generation for: ${lessonTitle}`);
+    console.log(`📊 Context Sources:`, {
+      hasFullContext: Boolean(fullContext),
+      hasUserContext: Boolean(userAddedContext),
+      hasWebContext: Boolean(webSearchContext),
+      hasRAGLibrary: Boolean(vectorStoreId),
+      usingTwoStageApproach: Boolean(vectorStoreId)
     });
 
-    // ✅ ENHANCED: Complete system prompt with ALL context sources
-    const systemPrompt = `Act as an expert ebook writer. ${fullContext}
+    // 🔢 TOKEN TRACKING: Initialize token counters
+    let tokenTracking = {
+      stage1_rag: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      stage2_final: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      web_search_context: { estimated_tokens: 0 },
+      overall_total: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+      content_info: {
+        lesson_title: lessonTitle,
+        has_rag: Boolean(vectorStoreId),
+        has_web_context: Boolean(webSearchContext),
+        has_user_context: Boolean(userAddedContext),
+        generation_timestamp: new Date().toISOString()
+      }
+    };
 
-Focus on actionable strategies that readers can implement immediately. Address emotional triggers. Emphasize benefits. Include common mistakes and how to avoid them. Use case studies or examples from real businesses to make content relatable. Provide templates and actionable checklists if applicable. Keep the text as action focused as possible. Quote recent research on this topic if any. Keep the tone motivating and supportive. Sound like Malcolm Gladwell or Daniel Pink for this ebook.
+    // 🔢 Estimate web search context tokens (rough approximation: 1 token ≈ 4 characters)
+    if (webSearchContext) {
+      tokenTracking.web_search_context.estimated_tokens = Math.ceil(webSearchContext.length / 4);
+      console.log(`📊 WEB SEARCH CONTEXT TOKEN ESTIMATE: ${tokenTracking.web_search_context.estimated_tokens} tokens (${webSearchContext.length} characters)`);
+    }
 
-The full content for this section will include: readingContent: The main text content (~1000-1500 words) in HTML format.
+    let ragContent = null;
 
-Generate the content for the section using the context below in HTML formatting.
+    // ✅ STAGE 1: Simple RAG Call (/responses) - Only if vector store is available
+    if (vectorStoreId) {
+      console.log(`🔍 STAGE 1: Extracting RAG content using /responses API`);
+      console.log(`📚 Vector Store ID: ${vectorStoreId}`);
 
-Context: ${fullContext}
-Instruction Method suggested by creator: ${instructionMethod}
-Topic content generation approach: ${topicGenerationApproach}${userAddedContext ? `
-
-User's Additional Context: ${userAddedContext}` : ''}${vectorStoreId ? `
-
-Use the attached files from vector store library as reference material and use it as relevant.` : ''}`;
-
-    // ✅ ENHANCED: Complete user prompt with web search context and lesson specifics
-    const userPrompt = `TASK: Develop a practical, step-by-step section on section title ${lessonTitle} with section description as ${lessonDescription} for the target audience from context.${webSearchContext ? `
-
-Given the objective based on ebook research passed above and the web_search context: ${webSearchContext}` : ''}
-
-Generate the readingContent: The main text content (~1500-2000 words). Generate in HTML format.
-
-Objectives: Provide practical, actionable content that readers can implement immediately.`;
-
-    try {
-      if (vectorStoreId) {
-        console.log(`🔍 Using RAG with /responses API and vector store: ${vectorStoreId}${webSearchContext ? ' and web context' : ''}`);
-        
-        // ✅ CRITICAL: Use RAG with vector store, web context, and all other context sources
+      try {
+        // Check vector store status first
         const VectorStoreService = (await import('./vectorStoreService.js')).default;
         const vectorStoreService = new VectorStoreService(this.apiKey);
+        
+        const storeStatus = await vectorStoreService.checkVectorStoreStatus(vectorStoreId);
+        console.log('📊 Vector store status:', storeStatus);
+        
+        if (!storeStatus.isReady) {
+          console.warn('⚠️ Vector store is not ready, proceeding without RAG');
+          vectorStoreId = null; // Disable RAG for this generation
+        } else {
+          console.log(`✅ Vector store ready with ${storeStatus.fileCount} files`);
 
-        // Check vector store status before using
-        try {
-          const storeStatus = await vectorStoreService.checkVectorStoreStatus(vectorStoreId);
-          console.log('📊 Vector store status:', storeStatus);
+          // Simple system prompt for RAG extraction
+          const ragSystemPrompt = `Act as a senior instructional designer. Output strictly as HTML, concise and practical. Focus on extracting relevant knowledge from the attached reference materials.`;
 
-          if (!storeStatus.isReady) {
-            console.warn('⚠️ Vector store is not ready, using standard generation instead');
-            throw new Error(`Vector store is not ready (status: ${storeStatus.status}). Files may still be processing.`);
+          // Simple user prompt for RAG extraction
+          const ragUserPrompt = `Generate the readingContent (1000-1200 words in HTML) for the topic section titled "${lessonTitle}" with description "${lessonDescription}" using the relevant reference from the attached documents from the reference library using file_search tool.
+
+Focus on:
+- Practical, actionable content
+- Step-by-step guidance where applicable
+- Real-world examples and case studies
+- Current best practices from the reference materials
+
+Output should be comprehensive HTML content that can stand alone as educational material.`;
+
+          // 🔢 Calculate input tokens for STAGE 1
+          const stage1InputLength = ragSystemPrompt.length + ragUserPrompt.length;
+          tokenTracking.stage1_rag.input_tokens = Math.ceil(stage1InputLength / 4); // Rough estimation
+
+          console.log(`🔢 STAGE 1 INPUT TOKEN ESTIMATE: ${tokenTracking.stage1_rag.input_tokens} tokens`);
+
+          // ✅ STAGE 1: RAG Content Extraction using /responses API
+          const ragResponse = await this.makeRequest('/responses', {
+            model: 'gpt-4.1-mini-2025-04-14', // Fixed model for RAG extraction
+            tools: [
+              {
+                type: "file_search",
+                vector_store_ids: [vectorStoreId],
+                max_num_results: 3
+              }
+            ],
+            input: [
+              {
+                role: "system",
+                content: ragSystemPrompt
+              },
+              {
+                role: "user", 
+                content: ragUserPrompt
+              }
+            ],
+            max_output_tokens: 1200 // Fixed tokens for RAG extraction
+          }, signal);
+
+          // 🔢 Extract actual token usage from /responses API
+          if (ragResponse.usage) {
+            tokenTracking.stage1_rag.input_tokens = ragResponse.usage.prompt_tokens || tokenTracking.stage1_rag.input_tokens;
+            tokenTracking.stage1_rag.output_tokens = ragResponse.usage.completion_tokens || 0;
+            tokenTracking.stage1_rag.total_tokens = ragResponse.usage.total_tokens || (tokenTracking.stage1_rag.input_tokens + tokenTracking.stage1_rag.output_tokens);
+            
+            console.log(`🔢 STAGE 1 RAG TOKEN USAGE (ACTUAL):`, {
+              input_tokens: tokenTracking.stage1_rag.input_tokens,
+              output_tokens: tokenTracking.stage1_rag.output_tokens,
+              total_tokens: tokenTracking.stage1_rag.total_tokens,
+              model: 'gpt-4.1-mini-2025-04-14',
+              endpoint: '/responses',
+              vector_store_id: vectorStoreId
+            });
           }
 
-          if (storeStatus.fileCount === 0) {
-            console.warn('⚠️ Vector store has no files, using standard generation instead');
-            throw new Error('Vector store has no files available for search.');
+          // Extract the text content from the /responses API format
+          if (ragResponse.output && ragResponse.output.length > 0) {
+            // Find the message output with text content
+            const messageOutput = ragResponse.output.find(output => 
+              output.type === 'message' && 
+              output.content && 
+              output.content.length > 0 &&
+              output.content[0].type === 'output_text'
+            );
+
+            if (messageOutput && messageOutput.content[0].text) {
+              ragContent = messageOutput.content[0].text;
+              
+              // Clean up any markdown code blocks if present
+              if (ragContent.includes('```html')) {
+                ragContent = ragContent.replace(/```html\n?/g, '').replace(/```\n?$/g, '');
+              }
+              
+              console.log('✅ STAGE 1 Complete: RAG content extracted successfully');
+              console.log(`📊 RAG Content Length: ${ragContent.length} characters`);
+            } else {
+              console.warn('⚠️ STAGE 1: No text content found in /responses API response');
+              ragContent = null;
+            }
+          } else {
+            console.warn('⚠️ STAGE 1: No output found in /responses API response');
+            ragContent = null;
           }
-
-          console.log(`✅ Vector store ready with ${storeStatus.fileCount} files (${storeStatus.processedFiles} processed)`);
-        } catch (statusError) {
-          console.warn('⚠️ Vector store status check failed, proceeding with standard generation:', statusError.message);
-          // Fall through to standard generation
-          vectorStoreId = null;
         }
-
-        if (vectorStoreId) {
-          // ✅ CRITICAL: Pass gptOptions to RAG generation for /responses API
-          const ragResponse = await vectorStoreService.generateContentWithRAG(
-            vectorStoreId,
-            systemPrompt,  // Contains: research context + user context + instructions
-            userPrompt,    // Contains: lesson prompt + web search context + specific instructions
-            gptOptions.max_tokens_gpt || 1800, // DYNAMIC_OPTION: Use max_tokens from gptOptions
-            gptOptions     // DYNAMIC_OPTION: Pass complete gptOptions for model, temperature, etc.
-          );
-
-          console.log('✅ RAG section content generated successfully via /responses API with complete context integration');
-          console.log('🎯 All context sources used:', {
-            marketingResearchInSystemPrompt: systemPrompt.includes('research brief'),
-            userContextInSystemPrompt: userAddedContext ? true : false,
-            webSearchContextInUserPrompt: webSearchContext ? true : false,
-            ragFileSearchUsed: true,
-            lessonSpecificInUserPrompt: userPrompt.includes(lessonTitle),
-            apiEndpoint: '/responses',
-            vectorStoreId: vectorStoreId
-          });
-          
-          return ragResponse;
-        }
+      } catch (error) {
+        console.error('❌ STAGE 1 Error:', error.message);
+        console.log('🔄 Continuing to STAGE 2 without RAG content');
+        ragContent = null;
       }
+    }
 
-      // Use standard chat completion with all context (no RAG)
-      console.log('🤖 Using standard content generation (no RAG) with complete context integration');
-      
-      // VibeCoding: Parameters are now sourced from the gptOptions object with fallbacks
-      const standardResponse = await this.makeRequest('/chat/completions', {
-        // DYNAMIC_OPTION: Use model from options, or default to 'gpt-4.1-mini-2025-04-14'
+    // ✅ STAGE 2: Full Context Integration & Final Content Generation
+    console.log(`🚀 STAGE 2: Full Context Integration & Final Content Generation`);
+    console.log(`📊 Available Context Sources:`, {
+      webSearchContext: webSearchContext ? 'Priority 1' : 'Not available',
+      ragContent: ragContent ? 'Priority 2' : 'Not available', 
+      researchBrief: fullContext ? 'Priority 3' : 'Not available',
+      userAddedContext: userAddedContext ? 'Priority 4' : 'Not available'
+    });
+
+    // Build comprehensive system prompt with all context sources
+    const comprehensiveSystemPrompt = `Act as an expert ebook writer and instructional designer. You are creating comprehensive, practical content for professionals.
+
+${fullContext ? `RESEARCH CONTEXT (Priority 3 - Overall Ebook Research):
+${fullContext}
+
+` : ''}${userAddedContext ? `USER ADDED CONTEXT (Priority 4 - Specific Instructions):
+${userAddedContext}
+
+` : ''}CONTENT REQUIREMENTS:
+- Focus on actionable strategies that readers can implement immediately
+- Address emotional triggers and emphasize benefits
+- Include common mistakes and how to avoid them
+- Use case studies or examples from real businesses to make content relatable
+- Provide templates and actionable checklists if applicable
+- Keep the text as action focused as possible
+- Quote recent research on this topic if any
+- Keep the tone motivating and supportive
+- Sound like Malcolm Gladwell or Daniel Pink for this ebook
+- Generate 1500-2000 words in HTML format
+
+Instruction Method: ${instructionMethod}
+Generation Approach: ${topicGenerationApproach}`;
+
+    // Build comprehensive user prompt with prioritized context
+    const comprehensiveUserPrompt = `TASK: Develop a comprehensive, practical section on "${lessonTitle}" with description: "${lessonDescription}"
+
+${webSearchContext ? `WEB SEARCH CONTEXT (Priority 1 - Current Trends & Data):
+${webSearchContext}
+
+` : ''}${ragContent ? `KNOWLEDGE LIBRARY CONTEXT (Priority 2 - Domain Expertise):
+${ragContent}
+
+` : ''}PRIORITY INSTRUCTIONS:
+1. ${webSearchContext ? 'Use the WEB SEARCH CONTEXT for current trends and recent insights' : 'Focus on established best practices and proven methods'}
+2. ${ragContent ? 'Enhance with KNOWLEDGE LIBRARY CONTEXT for domain-specific expertise and detailed guidance' : 'Ensure content is comprehensive and authoritative'}
+3. Ensure alignment with the overall research context and user requirements
+4. Generate practical, actionable content that readers can implement immediately
+
+Generate comprehensive HTML content (1500-2000 words) that combines all available context sources into a cohesive, valuable learning experience.`;
+
+    // 🔢 Calculate input tokens for STAGE 2
+    const stage2InputLength = comprehensiveSystemPrompt.length + comprehensiveUserPrompt.length;
+    tokenTracking.stage2_final.input_tokens = Math.ceil(stage2InputLength / 4); // Rough estimation
+
+    console.log(`🔢 STAGE 2 INPUT TOKEN ESTIMATE: ${tokenTracking.stage2_final.input_tokens} tokens`);
+
+    try {
+      // ✅ STAGE 2: Comprehensive Content Generation
+      const finalResponse = await this.makeRequest('/chat/completions', {
         model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
         messages: [
-          { role: 'system', content: systemPrompt },  // Contains: research + user + instructions
-          { role: 'user', content: userPrompt }       // Contains: lesson + web search context
+          { role: 'system', content: comprehensiveSystemPrompt },
+          { role: 'user', content: comprehensiveUserPrompt }
         ],
-        // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
         max_tokens: gptOptions.max_tokens_gpt || 3000,
-        // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
         temperature: gptOptions.temperature || 0.5
       }, signal);
 
-      console.log('✅ Standard section content generated successfully with complete context integration');
-      console.log('🎯 All context sources used (no RAG):', {
-        marketingResearchInSystemPrompt: systemPrompt.includes('research brief'),
-        userContextInSystemPrompt: userAddedContext ? true : false,
-        webSearchContextInUserPrompt: webSearchContext ? true : false,
-        ragFileSearchUsed: false,
-        lessonSpecificInUserPrompt: userPrompt.includes(lessonTitle),
-        apiEndpoint: '/chat/completions'
+      const finalContent = finalResponse.choices[0].message.content;
+
+      // 🔢 Extract actual token usage from STAGE 2
+      if (finalResponse.usage) {
+        tokenTracking.stage2_final.input_tokens = finalResponse.usage.prompt_tokens || tokenTracking.stage2_final.input_tokens;
+        tokenTracking.stage2_final.output_tokens = finalResponse.usage.completion_tokens || 0;
+        tokenTracking.stage2_final.total_tokens = finalResponse.usage.total_tokens || (tokenTracking.stage2_final.input_tokens + tokenTracking.stage2_final.output_tokens);
+        
+        console.log(`🔢 STAGE 2 FINAL GENERATION TOKEN USAGE (ACTUAL):`, {
+          input_tokens: tokenTracking.stage2_final.input_tokens,
+          output_tokens: tokenTracking.stage2_final.output_tokens,
+          total_tokens: tokenTracking.stage2_final.total_tokens,
+          model: gptOptions.model || 'gpt-4.1-mini-2025-04-14',
+          endpoint: '/chat/completions'
+        });
+      }
+
+      // 🔢 Calculate overall totals
+      tokenTracking.overall_total.input_tokens = tokenTracking.stage1_rag.input_tokens + tokenTracking.stage2_final.input_tokens + tokenTracking.web_search_context.estimated_tokens;
+      tokenTracking.overall_total.output_tokens = tokenTracking.stage1_rag.output_tokens + tokenTracking.stage2_final.output_tokens;
+      tokenTracking.overall_total.total_tokens = tokenTracking.overall_total.input_tokens + tokenTracking.overall_total.output_tokens;
+
+      // 🔢 COMPREHENSIVE TOKEN USAGE SUMMARY
+      console.log(`
+🔢 ===== COMPREHENSIVE TOKEN USAGE SUMMARY =====
+📝 LESSON: "${lessonTitle}"
+📅 TIMESTAMP: ${tokenTracking.content_info.generation_timestamp}
+
+📊 STAGE BREAKDOWN:
+${ragContent ? `🔍 STAGE 1 (RAG /responses):
+   • Input Tokens: ${tokenTracking.stage1_rag.input_tokens}
+   • Output Tokens: ${tokenTracking.stage1_rag.output_tokens}
+   • Total Tokens: ${tokenTracking.stage1_rag.total_tokens}
+   • Model: gpt-4.1-mini-2025-04-14
+   • Vector Store: ${vectorStoreId}
+` : '🔍 STAGE 1 (RAG): SKIPPED - No vector store'}
+${webSearchContext ? `🌐 WEB SEARCH CONTEXT:
+   • Estimated Tokens: ${tokenTracking.web_search_context.estimated_tokens}
+   • Content Length: ${webSearchContext.length} characters
+   • Source: Perplexity Sonar
+` : '🌐 WEB SEARCH CONTEXT: NOT USED'}
+🚀 STAGE 2 (Final Generation /chat/completions):
+   • Input Tokens: ${tokenTracking.stage2_final.input_tokens}
+   • Output Tokens: ${tokenTracking.stage2_final.output_tokens}
+   • Total Tokens: ${tokenTracking.stage2_final.total_tokens}
+   • Model: ${gptOptions.model || 'gpt-4.1-mini-2025-04-14'}
+
+🎯 OVERALL TOTALS:
+   • Total Input Tokens: ${tokenTracking.overall_total.input_tokens}
+   • Total Output Tokens: ${tokenTracking.overall_total.output_tokens}
+   • Grand Total Tokens: ${tokenTracking.overall_total.total_tokens}
+
+📈 CONTEXT SOURCES USED:
+   • RAG Library: ${ragContent ? '✅ YES' : '❌ NO'}
+   • Web Search Context: ${webSearchContext ? '✅ YES' : '❌ NO'}
+   • User Added Context: ${userAddedContext ? '✅ YES' : '❌ NO'}
+   • Research Brief: ${fullContext ? '✅ YES' : '❌ NO'}
+
+📋 GENERATION SUMMARY:
+   • Processing Stages: ${ragContent ? '2 (RAG + Final)' : '1 (Final Only)'}
+   • Final Content Length: ${finalContent.length} characters
+   • Estimated Final Content Tokens: ${Math.ceil(finalContent.length / 4)}
+===============================================
+      `);
+
+      console.log('✅ STAGE 2 Complete: Final content generated successfully');
+      console.log('🎯 Two-Stage Generation Summary:', {
+        stage1RAGUsed: Boolean(ragContent),
+        stage1ContentLength: ragContent ? ragContent.length : 0,
+        stage2FinalLength: finalContent.length,
+        contextSourcesUsed: {
+          webSearch: Boolean(webSearchContext),
+          ragLibrary: Boolean(ragContent),
+          researchBrief: Boolean(fullContext),
+          userContext: Boolean(userAddedContext)
+        },
+        totalProcessingStages: ragContent ? 2 : 1,
+        tokenTracking: tokenTracking
       });
-      
-      return standardResponse.choices[0].message.content;
+
+      return finalContent;
+
     } catch (error) {
-      console.log('❌ Error with primary model, falling back to gpt-3.5-turbo:', error.message);
+      console.error('❌ STAGE 2 Error:', error.message);
+      
+      // Fallback to gpt-3.5-turbo if primary model fails
       try {
-        // VibeCoding: Fallback still uses dynamic options but with gpt-3.5-turbo as model
+        console.log('🔄 STAGE 2 Fallback: Using gpt-3.5-turbo');
         const fallbackResponse = await this.makeRequest('/chat/completions', {
           model: 'gpt-3.5-turbo',
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
+            { role: 'system', content: comprehensiveSystemPrompt },
+            { role: 'user', content: comprehensiveUserPrompt }
           ],
-          // DYNAMIC_OPTION: Use max_tokens from options, or default to 3000
           max_tokens: gptOptions.max_tokens_gpt || 3000,
-          // DYNAMIC_OPTION: Use temperature from options, or default to 0.5
           temperature: gptOptions.temperature || 0.5
         }, signal);
 
-        console.log('✅ Fallback section content generated with complete context integration');
+        // 🔢 Track fallback tokens
+        if (fallbackResponse.usage) {
+          tokenTracking.stage2_final.input_tokens = fallbackResponse.usage.prompt_tokens || tokenTracking.stage2_final.input_tokens;
+          tokenTracking.stage2_final.output_tokens = fallbackResponse.usage.completion_tokens || 0;
+          tokenTracking.stage2_final.total_tokens = fallbackResponse.usage.total_tokens || (tokenTracking.stage2_final.input_tokens + tokenTracking.stage2_final.output_tokens);
+          
+          // Recalculate overall totals
+          tokenTracking.overall_total.input_tokens = tokenTracking.stage1_rag.input_tokens + tokenTracking.stage2_final.input_tokens + tokenTracking.web_search_context.estimated_tokens;
+          tokenTracking.overall_total.output_tokens = tokenTracking.stage1_rag.output_tokens + tokenTracking.stage2_final.output_tokens;
+          tokenTracking.overall_total.total_tokens = tokenTracking.overall_total.input_tokens + tokenTracking.overall_total.output_tokens;
+
+          console.log(`🔢 FALLBACK TOKEN USAGE: Input: ${tokenTracking.stage2_final.input_tokens}, Output: ${tokenTracking.stage2_final.output_tokens}, Total: ${tokenTracking.stage2_final.total_tokens}, Model: gpt-3.5-turbo`);
+          console.log(`🔢 OVERALL TOTALS (WITH FALLBACK): Input: ${tokenTracking.overall_total.input_tokens}, Output: ${tokenTracking.overall_total.output_tokens}, Grand Total: ${tokenTracking.overall_total.total_tokens}`);
+        }
+
+        console.log('✅ STAGE 2 Fallback Complete');
         return fallbackResponse.choices[0].message.content;
+
       } catch (fallbackError) {
-        console.error('❌ Fallback generation also failed:', fallbackError);
+        console.error('❌ STAGE 2 Fallback also failed:', fallbackError);
         return `<h2>${lessonTitle}</h2><p>${lessonDescription}</p><p>Content generation failed. Please try again later.</p>`;
       }
     }

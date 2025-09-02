@@ -177,7 +177,7 @@ class VectorStoreService {
         ],
         
         // DYNAMIC OPTIONS: Use advanced options from gptOptions
-        max_tokens: gptOptions.max_tokens_gpt || maxTokens,
+        max_output_tokens: gptOptions.max_tokens_gpt || maxTokens,
         temperature: gptOptions.temperature || 0.5
       };
 
